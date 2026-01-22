@@ -10,9 +10,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.inf2215.ui.theme.INF2215Theme
-
 enum class Screen {
-    Login, Register, Home
+    Login, Register, Home, Profile
 }
 
 class MainActivity : ComponentActivity() {
@@ -22,7 +21,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             INF2215Theme {
-                var screen by remember { mutableStateOf(Screen.Login) } //always start on login
+                var screen by remember { mutableStateOf(Screen.Login) } // always start on login
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     when (screen) {
@@ -40,7 +39,14 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Home -> HomeScreen(
                             modifier = Modifier.padding(innerPadding),
-                            onLogout = { screen = Screen.Login }
+                            onLogout = { screen = Screen.Login },
+                            onGoProfile = { screen = Screen.Profile }
+                        )
+
+                        Screen.Profile -> ProfileScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            onBack = { screen = Screen.Home },          //back to home
+                            onLogout = { screen = Screen.Login }        //logout to login
                         )
                     }
                 }
