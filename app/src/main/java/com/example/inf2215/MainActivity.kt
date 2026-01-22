@@ -10,11 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Pending
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,9 +19,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 enum class Screen {
-    Login, Register, Home, Profile, CreatePost, TrackRun, Pending, Community
+    Login, Register, Home, Profile, CreatePost, TrackRun, Pending, Community, AdminDashboard
 }
 
 data class NavItem(
@@ -43,6 +40,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             INF2215Theme {
                 var screen by remember { mutableStateOf(Screen.Login) }
+                var userRole by remember { mutableStateOf("public") }
+                val auth = FirebaseAuth.getInstance()
+                val db = FirebaseFirestore.getInstance()
+
+                // Fetch user role when logged in
+                LaunchedEffect(auth.currentUser) {
+                    val uid = auth.currentUser?.uid
+                    if (uid != null) {
+                        db.collection("users").document(uid).get().addOnSuccessListener { doc ->
+                            userRole = doc.getString("role") ?: "public"
+                        }
+                    } else {
+                        userRole = "public"
+                    }
+                }
 
                 val navItems = listOf(
                     NavItem(Screen.Home, "Home", Icons.Default.Home),
@@ -59,6 +71,25 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         if (showBars) {
                             CenterAlignedTopAppBar(
+                                navigationIcon = {
+                                    if (userRole == "admin") {
+                                        TextButton(
+                                            onClick = { screen = Screen.AdminDashboard },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AdminPanelSettings,
+                                                    contentDescription = "Admin"
+                                                )
+                                                Text(
+                                                    text = "Admin",
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
                                 title = {
                                     Text(
                                         when (screen) {
@@ -68,6 +99,7 @@ class MainActivity : ComponentActivity() {
                                             Screen.CreatePost -> "New Post"
                                             Screen.Pending -> "Pending"
                                             Screen.Community -> "Community"
+                                            Screen.AdminDashboard -> "Admin Dashboard"
                                             else -> ""
                                         }
                                     )
@@ -154,6 +186,10 @@ class MainActivity : ComponentActivity() {
                                 Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                                     Text("Community Screen - Coming Soon")
                                 }
+                            }
+
+                            Screen.AdminDashboard -> {
+                                AdminDashboardScreen()
                             }
                         }
                     }
