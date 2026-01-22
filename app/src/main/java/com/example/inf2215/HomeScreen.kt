@@ -56,9 +56,9 @@ fun HomeScreen(
                         id = doc.id,
                         userId = doc.getString("userId") ?: "",
                         displayName = doc.getString("displayName") ?: "Unknown",
-                        title = doc.getString("title") ?: "",  // Fetch Title
+                        title = doc.getString("title") ?: "",
                         text = doc.getString("text") ?: "",
-                        imageUrl = doc.getString("imageUrl"),  // Fetch Image
+                        imageUrl = doc.getString("imageUrl"),
                         type = doc.getString("type") ?: "NORMAL",
                         runDistance = doc.getString("runDistance"),
                         runDuration = doc.getString("runDuration"),
@@ -77,24 +77,17 @@ fun HomeScreen(
             ) { Icon(Icons.Default.Add, "Add") }
         }
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding).padding(16.dp)) {
-            // Header Buttons (Profile/Logout)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onGoProfile, modifier = Modifier.weight(1f)) { Text("Profile") }
-                Button(onClick = { FirebaseAuth.getInstance().signOut(); onLogout() }, modifier = Modifier.weight(1f)) { Text("Logout") }
-            }
-            Spacer(Modifier.height(16.dp))
-            Text("Community Feed", style = MaterialTheme.typography.titleLarge)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                items(posts) { post -> PostCard(post) }
-            }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding() + 16.dp,
+                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+                start = 16.dp,
+                end = 16.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(posts) { post -> PostCard(post) }
         }
     }
 

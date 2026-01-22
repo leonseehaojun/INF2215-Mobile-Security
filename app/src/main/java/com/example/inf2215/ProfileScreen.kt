@@ -100,19 +100,6 @@ fun ProfileScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header Buttons
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Back") }
-            Button(
-                onClick = {
-                    FirebaseAuth.getInstance().signOut()
-                    onLogout()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.weight(1f)
-            ) { Text("Logout") }
-        }
-
         // Profile Info Card
         Text("Runner Profile", style = MaterialTheme.typography.headlineMedium)
 
