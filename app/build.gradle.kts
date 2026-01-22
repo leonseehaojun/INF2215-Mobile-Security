@@ -61,4 +61,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-auth")
+    implementation("androidx.compose.material:material-icons-extended:1.7.6")
+    implementation("io.coil-kt:coil-compose:2.5.0") // For loading images from URLs
+    implementation("com.google.firebase:firebase-storage-ktx:21.0.1")   // For Firebase Storage
 }

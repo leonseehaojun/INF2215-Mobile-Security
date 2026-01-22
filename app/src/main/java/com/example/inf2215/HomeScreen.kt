@@ -1,25 +1,34 @@
 package com.example.inf2215
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 
-private const val TAG = "HomeScreen"
-
 data class FeedPost(
     val id: String = "",
     val userId: String = "",
     val displayName: String = "",
+    val title: String = "",
     val text: String = "",
+    val imageUrl: String? = null,
+    val type: String = "NORMAL",
+    val runDistance: String? = null,
+    val runDuration: String? = null,
     val createdAt: Timestamp? = null
 )
 
@@ -27,168 +36,128 @@ data class FeedPost(
 fun HomeScreen(
     modifier: Modifier = Modifier,
     onLogout: () -> Unit,
-    onGoProfile: () -> Unit
+    onGoProfile: () -> Unit,
+    onNavigateToCreatePost: () -> Unit,
+    onNavigateToTrackRun: () -> Unit
 ) {
-    val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
-
     var posts by remember { mutableStateOf(listOf<FeedPost>()) }
-    var status by remember { mutableStateOf("") }
-    var isSeeding by remember { mutableStateOf(false) }
+    var showPostTypeDialog by remember { mutableStateOf(false) }
 
     // Live feed listener
     LaunchedEffect(Unit) {
         db.collection("posts")
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    status = "Feed error: ${e.message}"
-                    Log.e(TAG, "Feed listener error", e)
-                    return@addSnapshotListener
-                }
+                if (e != null) return@addSnapshotListener
 
-                val list = snapshot?.documents?.map { doc ->
+                posts = snapshot?.documents?.map { doc ->
                     FeedPost(
                         id = doc.id,
                         userId = doc.getString("userId") ?: "",
                         displayName = doc.getString("displayName") ?: "Unknown",
+                        title = doc.getString("title") ?: "",  // Fetch Title
                         text = doc.getString("text") ?: "",
-                        createdAt = doc.getTimestamp("createdAt")?.let { Timestamp(it.seconds, it.nanoseconds) }
+                        imageUrl = doc.getString("imageUrl"),  // Fetch Image
+                        type = doc.getString("type") ?: "NORMAL",
+                        runDistance = doc.getString("runDistance"),
+                        runDuration = doc.getString("runDuration"),
+                        createdAt = doc.getTimestamp("createdAt")
                     )
                 } ?: emptyList()
-
-                posts = list
             }
     }
 
-    fun seedDemoPosts(count: Int = 5) {
-        val user = auth.currentUser
-        if (user == null) {
-            status = "Not logged in"
-            return
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showPostTypeDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary
+            ) { Icon(Icons.Default.Add, "Add") }
         }
-
-        isSeeding = true
-        status = "Seeding demo posts..."
-
-        // Use current user's displayName from Firestore if available
-        db.collection("users").document(user.uid).get()
-            .addOnSuccessListener { userDoc ->
-                val myName = userDoc.getString("displayName") ?: "Demo User"
-
-                val demoTexts = listOf(
-                    "First run of the week",
-                    "Tried a new route today!",
-                    "Morning jog",
-                    "5K done — feeling good.",
-                    "Any runners around my area?"
-                )
-
-                val batch = db.batch()
-                for (i in 0 until count) {
-                    val postRef = db.collection("posts").document()
-                    val postData = hashMapOf(
-                        "userId" to user.uid,
-                        "displayName" to myName,
-                        "text" to demoTexts[i % demoTexts.size],
-                        "createdAt" to Timestamp.now()
-                    )
-                    batch.set(postRef, postData)
-                }
-
-                batch.commit()
-                    .addOnSuccessListener {
-                        status = "Seeded $count demo posts!"
-                        isSeeding = false
-                    }
-                    .addOnFailureListener { e ->
-                        status = "Seed failed: ${e.message}"
-                        isSeeding = false
-                        Log.e(TAG, "Seed failed", e)
-                    }
+    ) { innerPadding ->
+        Column(modifier = Modifier.padding(innerPadding).padding(16.dp)) {
+            // Header Buttons (Profile/Logout)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onGoProfile, modifier = Modifier.weight(1f)) { Text("Profile") }
+                Button(onClick = { FirebaseAuth.getInstance().signOut(); onLogout() }, modifier = Modifier.weight(1f)) { Text("Logout") }
             }
-            .addOnFailureListener { e ->
-                status = "Could not load profile: ${e.message}"
-                isSeeding = false
-            }
-    }
+            Spacer(Modifier.height(16.dp))
+            Text("Community Feed", style = MaterialTheme.typography.titleLarge)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-    fun clearMyPosts() {
-        val user = auth.currentUser ?: run {
-            status = "⚠Not logged in"
-            return
-        }
-
-        status = "Deleting your posts..."
-        db.collection("posts")
-            .whereEqualTo("userId", user.uid)
-            .get()
-            .addOnSuccessListener { snap ->
-                val batch = db.batch()
-                snap.documents.forEach { batch.delete(it.reference) }
-                batch.commit()
-                    .addOnSuccessListener { status = "Deleted your posts" }
-                    .addOnFailureListener { e -> status = "Delete failed: ${e.message}" }
-            }
-            .addOnFailureListener { e ->
-                status = "Query failed: ${e.message}"
-            }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onGoProfile, modifier = Modifier.weight(1f)) { Text("Profile") }
-
-            Button(
-                onClick = {
-                    FirebaseAuth.getInstance().signOut()
-                    onLogout()
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text("Logout") }
-        }
-
-        Text("Feed", style = MaterialTheme.typography.titleLarge)
-        if (status.isNotBlank()) Text(status)
-
-        // Temporary test controls (so you can test without teammate's posting UI)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = { seedDemoPosts(5) },
-                enabled = !isSeeding,
-                modifier = Modifier.weight(1f)
-            ) { Text(if (isSeeding) "Seeding..." else "Seed demo posts") }
-
-            OutlinedButton(
-                onClick = { clearMyPosts() },
-                modifier = Modifier.weight(1f)
-            ) { Text("Clear my posts") }
-        }
-
-        Divider()
-
-        if (posts.isEmpty()) {
-            Text("No posts yet. Tap 'Seed demo posts' to test the feed.")
-        } else {
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
-                items(posts) { post ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(post.displayName, style = MaterialTheme.typography.titleMedium)
-                            Text(post.text)
-                        }
-                    }
+                items(posts) { post -> PostCard(post) }
+            }
+        }
+    }
+
+    if (showPostTypeDialog) {
+        AlertDialog(
+            onDismissRequest = { showPostTypeDialog = false },
+            title = { Text("Create New") },
+            text = { Text("What would you like to post?") },
+            confirmButton = {
+                TextButton(onClick = { showPostTypeDialog = false; onNavigateToTrackRun() }) {
+                    Icon(Icons.AutoMirrored.Filled.DirectionsRun, null); Spacer(Modifier.width(8.dp)); Text("Track Run")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPostTypeDialog = false; onNavigateToCreatePost() }) {
+                    Icon(Icons.Default.Edit, null); Spacer(Modifier.width(8.dp)); Text("Text Post")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun PostCard(post: FeedPost) {
+    Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(4.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header: Name & Badge
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(post.displayName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.weight(1f))
+                if (post.type == "RUN") Badge { Text("RUN") }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Title (Bold)
+            if (post.title.isNotBlank()) {
+                Text(post.title, style = MaterialTheme.typography.titleLarge)
+            }
+
+            // Image (If exists)
+            if (post.imageUrl != null) {
+                Spacer(Modifier.height(8.dp))
+                AsyncImage(
+                    model = post.imageUrl,
+                    contentDescription = "Post Image",
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(post.text, style = MaterialTheme.typography.bodyMedium)
+
+            // Run Stats
+            if (post.type == "RUN" && post.runDistance != null) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column { Text(post.runDistance, style = MaterialTheme.typography.titleMedium); Text("Distance", style = MaterialTheme.typography.labelSmall) }
+                    Column { Text(post.runDuration ?: "00:00", style = MaterialTheme.typography.titleMedium); Text("Time", style = MaterialTheme.typography.labelSmall) }
                 }
             }
         }
