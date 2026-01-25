@@ -7,12 +7,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.maps.GoogleMapOptions
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.maps.android.compose.*
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -23,6 +28,7 @@ data class ProfileRunItem(
     val title: String = "",
     val distanceStr: String = "",
     val durationStr: String = "",
+    val route: List<LatLng> = emptyList(),
     val timestamp: Timestamp? = null
 )
 
@@ -67,25 +73,33 @@ fun ProfileScreen(
                 Log.e(TAG, "Profile load failed", e)
             }
 
-        // Load Recent Runs from 'posts' collection (to get Titles)
+        // Load Recent Runs
         db.collection("posts")
             .whereEqualTo("userId", uid)
             .whereEqualTo("type", "RUN")
             .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(20) // Limit to last 20 runs
+            .limit(20)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     status = "Error loading runs: ${e.message}"
-                    Log.e(TAG, "Runs listener error", e)
                     return@addSnapshotListener
                 }
 
                 val list = snapshot?.documents?.map { doc ->
+                    // Parse the Route Data
+                    val rawRoute = doc.get("route") as? List<Map<String, Double>>
+                    val parsedRoute = rawRoute?.mapNotNull {
+                        if (it.containsKey("lat") && it.containsKey("lng")) {
+                            LatLng(it["lat"]!!, it["lng"]!!)
+                        } else null
+                    } ?: emptyList()
+
                     ProfileRunItem(
                         id = doc.id,
                         title = doc.getString("title") ?: "Untitled Run",
                         distanceStr = doc.getString("runDistance") ?: "0 km",
                         durationStr = doc.getString("runDuration") ?: "00:00",
+                        route = parsedRoute, // Assign route
                         timestamp = doc.getTimestamp("createdAt")
                     )
                 } ?: emptyList()
@@ -120,10 +134,17 @@ fun ProfileScreen(
         }
 
         // Recent Runs Section
-        Text("Recent Activity", style = MaterialTheme.typography.titleLarge)
+        Column {
+            Text("Recent Activity", style = MaterialTheme.typography.titleLarge)
+            HorizontalDivider()
+        }
 
         if (status.isNotBlank()) {
-            Text(status, color = MaterialTheme.colorScheme.error)
+            if (status.contains("index")) {
+                Text("Missing Index. Check Firebase Console.", color = MaterialTheme.colorScheme.error)
+            } else {
+                Text(status, color = MaterialTheme.colorScheme.error)
+            }
         }
 
         if (recentRuns.isEmpty()) {
@@ -175,6 +196,29 @@ fun RunHistoryCard(run: ProfileRunItem) {
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
+
+            // Add Map View if route exists
+            if (run.route.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+                    GoogleMap(
+                        modifier = Modifier.fillMaxSize(),
+                        cameraPositionState = rememberCameraPositionState {
+                            position = CameraPosition.fromLatLngZoom(run.route.last(), 14f)
+                        },
+                        googleMapOptionsFactory = {
+                            GoogleMapOptions().liteMode(true)
+                        },
+                        uiSettings = MapUiSettings(zoomControlsEnabled = false)
+                    ) {
+                        Polyline(
+                            points = run.route,
+                            color = Color.Red,
+                            width = 8f
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

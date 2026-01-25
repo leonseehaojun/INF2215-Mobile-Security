@@ -6,9 +6,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -41,6 +44,8 @@ class MainActivity : ComponentActivity() {
             INF2215Theme {
                 var screen by remember { mutableStateOf(Screen.Login) }
                 var userRole by remember { mutableStateOf("public") }
+                var showPostTypeDialog by remember { mutableStateOf(false) }
+
                 val auth = FirebaseAuth.getInstance()
                 val db = FirebaseFirestore.getInstance()
 
@@ -59,7 +64,7 @@ class MainActivity : ComponentActivity() {
                 val navItems = listOf(
                     NavItem(Screen.Home, "Home", Icons.Default.Home),
                     NavItem(Screen.Pending, "Pending", Icons.Default.Pending),
-                    NavItem(Screen.TrackRun, "Record", Icons.Default.DirectionsRun),
+                    NavItem(Screen.CreatePost, "Post", Icons.Default.Add),
                     NavItem(Screen.Community, "Community", Icons.Default.Group),
                     NavItem(Screen.Profile, "Profile", Icons.Default.Person)
                 )
@@ -105,22 +110,24 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                                 actions = {
-                                    TextButton(
-                                        onClick = {
-                                            FirebaseAuth.getInstance().signOut()
-                                            screen = Screen.Login
-                                        },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Logout,
-                                                contentDescription = "Log Out"
-                                            )
-                                            Text(
-                                                text = "Log Out",
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
+                                    if (screen == Screen.Profile) {
+                                        TextButton(
+                                            onClick = {
+                                                FirebaseAuth.getInstance().signOut()
+                                                screen = Screen.Login
+                                            },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                                    contentDescription = "Log Out"
+                                                )
+                                                Text(
+                                                    text = "Log Out",
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -133,7 +140,13 @@ class MainActivity : ComponentActivity() {
                                 navItems.forEach { item ->
                                     NavigationBarItem(
                                         selected = screen == item.screen,
-                                        onClick = { screen = item.screen },
+                                        onClick = {
+                                            if (item.screen == Screen.CreatePost) {
+                                                showPostTypeDialog = true
+                                            } else {
+                                                screen = item.screen
+                                            }
+                                        },
                                         label = { Text(item.label) },
                                         icon = { Icon(item.icon, contentDescription = item.label) }
                                     )
@@ -142,7 +155,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    Surface(modifier = Modifier.padding(innerPadding)) {
+                    Box(modifier = Modifier.padding(innerPadding)) {
                         when (screen) {
                             Screen.Login -> LoginScreen(
                                 onLoginSuccess = { screen = Screen.Home },
@@ -192,6 +205,35 @@ class MainActivity : ComponentActivity() {
                                 AdminDashboardScreen()
                             }
                         }
+                    }
+
+                    // Post Dialog
+                    if (showPostTypeDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showPostTypeDialog = false },
+                            title = { Text("Create New") },
+                            text = { Text("What would you like to post?") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showPostTypeDialog = false
+                                    screen = Screen.TrackRun
+                                }) {
+                                    Icon(Icons.AutoMirrored.Filled.DirectionsRun, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Track Run")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    showPostTypeDialog = false
+                                    screen = Screen.CreatePost
+                                }) {
+                                    Icon(Icons.Default.Edit, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Text Post")
+                                }
+                            }
+                        )
                     }
                 }
             }

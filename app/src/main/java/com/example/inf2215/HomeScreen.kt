@@ -3,10 +3,6 @@ package com.example.inf2215
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.automirrored.filled.DirectionsRun
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,10 +10,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.google.android.gms.maps.GoogleMapOptions
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.maps.android.compose.*
+import androidx.compose.ui.graphics.Color
 
 data class FeedPost(
     val id: String = "",
@@ -29,6 +30,7 @@ data class FeedPost(
     val type: String = "NORMAL",
     val runDistance: String? = null,
     val runDuration: String? = null,
+    val route: List<LatLng> = emptyList(),
     val createdAt: Timestamp? = null
 )
 
@@ -42,7 +44,6 @@ fun HomeScreen(
 ) {
     val db = remember { FirebaseFirestore.getInstance() }
     var posts by remember { mutableStateOf(listOf<FeedPost>()) }
-    var showPostTypeDialog by remember { mutableStateOf(false) }
 
     // Live feed listener
     LaunchedEffect(Unit) {
@@ -52,6 +53,13 @@ fun HomeScreen(
                 if (e != null) return@addSnapshotListener
 
                 posts = snapshot?.documents?.map { doc ->
+                    val rawRoute = doc.get("route") as? List<Map<String, Double>>
+                    val parsedRoute = rawRoute?.mapNotNull {
+                        if (it.containsKey("lat") && it.containsKey("lng")) {
+                            LatLng(it["lat"]!!, it["lng"]!!)
+                        } else null
+                    } ?: emptyList()
+
                     FeedPost(
                         id = doc.id,
                         userId = doc.getString("userId") ?: "",
@@ -62,51 +70,22 @@ fun HomeScreen(
                         type = doc.getString("type") ?: "NORMAL",
                         runDistance = doc.getString("runDistance"),
                         runDuration = doc.getString("runDuration"),
+                        route = parsedRoute,
                         createdAt = doc.getTimestamp("createdAt")
                     )
                 } ?: emptyList()
             }
     }
+    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+        Text("Community Feed", style = MaterialTheme.typography.titleLarge)
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showPostTypeDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary
-            ) { Icon(Icons.Default.Add, "Add") }
-        }
-    ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = innerPadding.calculateTopPadding() + 16.dp,
-                bottom = innerPadding.calculateBottomPadding() + 16.dp,
-                start = 16.dp,
-                end = 16.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
             items(posts) { post -> PostCard(post) }
         }
-    }
-
-    if (showPostTypeDialog) {
-        AlertDialog(
-            onDismissRequest = { showPostTypeDialog = false },
-            title = { Text("Create New") },
-            text = { Text("What would you like to post?") },
-            confirmButton = {
-                TextButton(onClick = { showPostTypeDialog = false; onNavigateToTrackRun() }) {
-                    Icon(Icons.AutoMirrored.Filled.DirectionsRun, null); Spacer(Modifier.width(8.dp)); Text("Track Run")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPostTypeDialog = false; onNavigateToCreatePost() }) {
-                    Icon(Icons.Default.Edit, null); Spacer(Modifier.width(8.dp)); Text("Text Post")
-                }
-            }
-        )
     }
 }
 
@@ -120,13 +99,10 @@ fun PostCard(post: FeedPost) {
                 Spacer(Modifier.weight(1f))
                 if (post.type == "RUN") Badge { Text("RUN") }
             }
-
             Spacer(Modifier.height(8.dp))
 
             // Title (Bold)
-            if (post.title.isNotBlank()) {
-                Text(post.title, style = MaterialTheme.typography.titleLarge)
-            }
+            if (post.title.isNotBlank()) Text(post.title, style = MaterialTheme.typography.titleLarge)
 
             // Image (If exists)
             if (post.imageUrl != null) {
@@ -137,6 +113,29 @@ fun PostCard(post: FeedPost) {
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                     contentScale = ContentScale.Crop
                 )
+            }
+
+            // GMap Display
+            if (post.type == "RUN" && post.route.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+                    GoogleMap(
+                        modifier = Modifier.fillMaxSize(),
+                        cameraPositionState = rememberCameraPositionState {
+                            position = CameraPosition.fromLatLngZoom(post.route.last(), 15f)
+                        },
+                        googleMapOptionsFactory = {
+                            GoogleMapOptions().liteMode(true)
+                        },
+                        uiSettings = MapUiSettings(zoomControlsEnabled = false)
+                    ) {
+                        Polyline(
+                            points = post.route,
+                            color = Color.Red,
+                            width = 10f
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(8.dp))

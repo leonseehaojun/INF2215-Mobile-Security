@@ -15,12 +15,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.google.maps.android.compose.*
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.delay
 import java.util.UUID
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.runtime.saveable.rememberSaveable
+import android.location.Location
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.maps.GoogleMapOptions
 
 // Upload Image Function
 fun uploadImageToStorage(uri: Uri, onSuccess: (String) -> Unit, onError: () -> Unit) {
@@ -153,131 +168,219 @@ fun CreatePostScreen(
     }
 }
 
-// SCREEN 2: TRACK RUN SCREEN
+// SCREEN 2: TRACK RUN SCREEN WITH LIVE LOCATION
 @Composable
 fun TrackRunScreen(
     modifier: Modifier = Modifier,
     onRunFinished: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     // Run Logic States
     var isRunning by remember { mutableStateOf(false) }
-    var isFinished by remember { mutableStateOf(false) } // True when run is done, change to "Review Mode"
+    var isFinished by remember { mutableStateOf(false) }    // True when run is done, change to "Review Mode"
     var seconds by remember { mutableStateOf(0L) }
     var distanceKm by remember { mutableStateOf(0.0) }
 
+    // Map & Location State
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    var currentLocation by remember { mutableStateOf(LatLng(1.3521, 103.8198)) }
+    var pathPoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
+    var isLocationLoaded by remember { mutableStateOf(false) }
+
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted -> hasLocationPermission = isGranted }
+
     // Review States
     var runTitle by remember { mutableStateOf("") }
-    var runDescription by remember { mutableStateOf("") } // User input for body text
+    var runDescription by remember { mutableStateOf("") }   // User input for body text
     var isSaving by remember { mutableStateOf(false) }
 
-    // Timer Logic
+    // Ask for Location Permission on Start
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    // Fetch Initial Location
+    LaunchedEffect(hasLocationPermission) {
+        if (hasLocationPermission) {
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+            try {
+                @SuppressLint("MissingPermission")
+                val task = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                task.addOnSuccessListener { location ->
+                    if (location != null) {
+                        val latLng = LatLng(location.latitude, location.longitude)
+                        currentLocation = latLng
+                        pathPoints = listOf(latLng)
+                        cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 18f)
+                        isLocationLoaded = true
+                    }
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    // Timer & Run Simulation
     LaunchedEffect(isRunning) {
         if (isRunning) {
-            val startTime = System.currentTimeMillis()
-            val startSeconds = seconds
+            val startTime = System.currentTimeMillis() - (seconds * 1000)
             while (isRunning) {
-                seconds = startSeconds + (System.currentTimeMillis() - startTime) / 1000
-                distanceKm += 0.003
+                val currentTime = System.currentTimeMillis()
+                seconds = (currentTime - startTime) / 1000
+
+                if (pathPoints.isNotEmpty()) {
+                    distanceKm += 0.003
+                    val lastPoint = pathPoints.last()
+                    // Simulate movement
+                    val newPoint = LatLng(lastPoint.latitude + 0.00005, lastPoint.longitude + 0.00005)
+
+                    pathPoints = pathPoints + newPoint
+                    cameraPositionState.position = CameraPosition.fromLatLngZoom(newPoint, 18f)
+                }
                 delay(1000)
             }
         }
     }
 
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier = modifier.fillMaxSize()) {
         if (!isFinished) {
             // VIEW 1: ACTIVE RUNNER
-            Text("Current Run", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(32.dp))
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (isLocationLoaded || !hasLocationPermission) {
+                    GoogleMap(
+                        modifier = Modifier.fillMaxSize(),
+                        cameraPositionState = cameraPositionState,
+                        properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
+                        uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = true)
+                    ) {
+                        Polyline(points = pathPoints, color = Color.Red, width = 12f)
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                // Stats Card
+                Card(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                ) {
+                    Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(formatTime(seconds), style = MaterialTheme.typography.titleLarge)
+                            Text("Time", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(String.format("%.2f km", distanceKm), style = MaterialTheme.typography.titleLarge)
+                            Text("Distance", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
 
-            Text(formatTime(seconds), style = MaterialTheme.typography.displayLarge)
-            Text("Duration", style = MaterialTheme.typography.labelMedium)
-
-            Spacer(Modifier.height(16.dp))
-
-            Text(String.format("%.2f km", distanceKm), style = MaterialTheme.typography.displayMedium)
-            Text("Distance", style = MaterialTheme.typography.labelMedium)
-
-            Spacer(Modifier.height(48.dp))
-
-            if (!isRunning && seconds == 0L) {
-                // Initial State
-                Button(onClick = { isRunning = true }, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("START RUN") }
-                Spacer(Modifier.height(16.dp))
-                TextButton(onClick = onCancel) { Text("Cancel") }
-            } else if (isRunning) {
-                // Running State
-                Button(onClick = { isRunning = false }, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("PAUSE") }
-            } else {
-                // Paused State
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedButton(onClick = { isRunning = true }, modifier = Modifier.weight(1f)) { Text("Resume") }
-                    Button(onClick = { isFinished = true }, modifier = Modifier.weight(1f)) { Text("Finish") }
+            // Controls Surface
+            Surface(shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (!hasLocationPermission) {
+                        Text("Enable location to track run", color = MaterialTheme.colorScheme.error)
+                        Button(onClick = { permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }) { Text("Grant Permission") }
+                    } else if (!isRunning && seconds == 0L) {
+                        // Initial State
+                        Button(
+                            onClick = { isRunning = true },
+                            enabled = isLocationLoaded,
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) { Text(if (isLocationLoaded) "START RUN" else "WAITING FOR GPS...") }
+                        TextButton(onClick = onCancel) { Text("Cancel") }
+                    } else if (isRunning) {
+                        // Running State
+                        Button(onClick = { isRunning = false }, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("PAUSE") }
+                    } else {
+                        // Paused State
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            OutlinedButton(onClick = { isRunning = true }, modifier = Modifier.weight(1f)) { Text("Resume") }
+                            Button(onClick = { isFinished = true }, modifier = Modifier.weight(1f)) { Text("Finish") }
+                        }
+                    }
                 }
             }
         } else {
             // VIEW 2: REVIEW & SAVE
-            Text("Great Job!", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(8.dp))
-            Text("${formatTime(seconds)} • ${String.format("%.2f km", distanceKm)}", style = MaterialTheme.typography.titleMedium)
-
-            Spacer(Modifier.height(24.dp))
-
-            // Title Input
-            OutlinedTextField(
-                value = runTitle,
-                onValueChange = { runTitle = it },
-                label = { Text("Title (Required)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            // Description Input
-            OutlinedTextField(
-                value = runDescription,
-                onValueChange = { runDescription = it },
-                label = { Text("How did it go?") },
-                placeholder = { Text("E.g. Beat my personal best!") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3
-            )
-
-            Spacer(Modifier.height(32.dp))
-
-            if (isSaving) {
-                CircularProgressIndicator()
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Cancel Option
-                    OutlinedButton(
-                        onClick = onCancel, // Discard run and go home
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Discard")
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Run Summary", style = MaterialTheme.typography.headlineMedium)
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        Text(formatTime(seconds), style = MaterialTheme.typography.titleLarge)
+                        Text(String.format("%.2f km", distanceKm), style = MaterialTheme.typography.titleLarge)
                     }
+                }
 
-                    // Save Button
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        enabled = runTitle.isNotBlank(), // Force user to add a title
-                        onClick = {
-                            isSaving = true
-                            saveRunToFirestore(
-                                seconds = seconds,
-                                distanceKm = distanceKm,
-                                title = runTitle,
-                                description = runDescription, // Pass the user input
-                                onSuccess = onRunFinished
-                            )
+                // Show Static Map Preview in Review
+                if (pathPoints.isNotEmpty()) {
+                    Box(modifier = Modifier.height(200.dp).fillMaxWidth().padding(vertical = 8.dp)) {
+                        GoogleMap(
+                            modifier = Modifier.fillMaxSize(),
+                            cameraPositionState = rememberCameraPositionState {
+                                position = CameraPosition.fromLatLngZoom(pathPoints.last(), 15f)
+                            },
+                            googleMapOptionsFactory = {
+                                GoogleMapOptions().liteMode(true)
+                            },
+                            uiSettings = MapUiSettings(zoomControlsEnabled = false)
+                        ) {
+                            Polyline(points = pathPoints, color = Color.Red, width = 10f)
                         }
-                    ) {
-                        Text("Save to Feed")
+                    }
+                }
+
+                // Title Input
+                OutlinedTextField(
+                    value = runTitle,
+                    onValueChange = { runTitle = it },
+                    label = { Text("Title *") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Description Input
+                OutlinedTextField(
+                    value = runDescription,
+                    onValueChange = { runDescription = it },
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+                Spacer(Modifier.weight(1f))
+                if (isSaving) {
+                    CircularProgressIndicator()
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Discard run and go home
+                        OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") }
+                        // Save Button
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            enabled = runTitle.isNotBlank(),    // Force user to add a title
+                            onClick = {
+                                isSaving = true
+                                saveRunToFirestore(seconds, distanceKm, runTitle, runDescription, pathPoints, onSuccess = onRunFinished)
+                            }
+                        ) { Text("Save") }
                     }
                 }
             }
@@ -291,6 +394,7 @@ fun saveRunToFirestore(
     distanceKm: Double,
     title: String,
     description: String,
+    pathPoints: List<LatLng>,
     onSuccess: () -> Unit
 ) {
     val db = FirebaseFirestore.getInstance()
@@ -299,11 +403,17 @@ fun saveRunToFirestore(
 
     val durationMin = seconds / 60.0
 
+    // Convert List<LatLng> to List<Map> for Firestore
+    val routeData = pathPoints.map {
+        hashMapOf("lat" to it.latitude, "lng" to it.longitude)
+    }
+
     // Save raw run data
     val runData = hashMapOf(
         "userId" to user.uid,
         "distanceKm" to distanceKm,
         "durationMin" to durationMin,
+        "route" to routeData, // Save route
         "createdAt" to Timestamp.now()
     )
 
@@ -316,11 +426,12 @@ fun saveRunToFirestore(
                 "userId" to user.uid,
                 "displayName" to displayName,
                 "title" to title,
-                "text" to description.ifBlank { "Completed a run!" }, // Use input or fallback
+                "text" to description.ifBlank { "Completed a run!" },
                 "type" to "RUN",
                 "runId" to runRef.id,
                 "runDistance" to String.format("%.2f km", distanceKm),
                 "runDuration" to formatTime(seconds),
+                "route" to routeData, // Save route here too for easy feed display
                 "createdAt" to Timestamp.now()
             )
 
