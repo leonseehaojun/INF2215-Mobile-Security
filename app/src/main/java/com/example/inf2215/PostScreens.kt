@@ -1,6 +1,12 @@
 package com.example.inf2215
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
 import android.net.Uri
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,9 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.google.android.gms.location.*
+import com.google.android.gms.maps.GoogleMapOptions
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
@@ -22,20 +33,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.maps.android.compose.*
-import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.delay
 import java.util.UUID
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.runtime.saveable.rememberSaveable
-import android.location.Location
-import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.maps.GoogleMapOptions
 
 // Upload Image Function
 fun uploadImageToStorage(uri: Uri, onSuccess: (String) -> Unit, onError: () -> Unit) {
@@ -175,11 +174,11 @@ fun TrackRunScreen(
     onRunFinished: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
     // Run Logic States
     var isRunning by remember { mutableStateOf(false) }
-    var isFinished by remember { mutableStateOf(false) }    // True when run is done, change to "Review Mode"
+    var isFinished by remember { mutableStateOf(false) }
     var seconds by remember { mutableStateOf(0L) }
     var distanceKm by remember { mutableStateOf(0.0) }
 
@@ -190,12 +189,13 @@ fun TrackRunScreen(
         )
     }
 
+    // Default start location (will be overwritten by GPS)
     var currentLocation by remember { mutableStateOf(LatLng(1.3521, 103.8198)) }
     var pathPoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
     var isLocationLoaded by remember { mutableStateOf(false) }
 
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(currentLocation, 15f)
+        position = CameraPosition.fromLatLngZoom(currentLocation, 17f)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -204,7 +204,7 @@ fun TrackRunScreen(
 
     // Review States
     var runTitle by remember { mutableStateOf("") }
-    var runDescription by remember { mutableStateOf("") }   // User input for body text
+    var runDescription by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
 
     // Ask for Location Permission on Start
@@ -223,8 +223,10 @@ fun TrackRunScreen(
                     if (location != null) {
                         val latLng = LatLng(location.latitude, location.longitude)
                         currentLocation = latLng
-                        pathPoints = listOf(latLng)
-                        cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 18f)
+                        if (pathPoints.isEmpty()) {
+                            pathPoints = listOf(latLng)
+                            cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 18f)
+                        }
                         isLocationLoaded = true
                     }
                 }
@@ -232,25 +234,73 @@ fun TrackRunScreen(
         }
     }
 
-    // Timer & Run Simulation
+    // Timer Logic
     LaunchedEffect(isRunning) {
         if (isRunning) {
             val startTime = System.currentTimeMillis() - (seconds * 1000)
             while (isRunning) {
-                val currentTime = System.currentTimeMillis()
-                seconds = (currentTime - startTime) / 1000
-
-                if (pathPoints.isNotEmpty()) {
-                    distanceKm += 0.003
-                    val lastPoint = pathPoints.last()
-                    // Simulate movement
-                    val newPoint = LatLng(lastPoint.latitude + 0.00005, lastPoint.longitude + 0.00005)
-
-                    pathPoints = pathPoints + newPoint
-                    cameraPositionState.position = CameraPosition.fromLatLngZoom(newPoint, 18f)
-                }
+                seconds = (System.currentTimeMillis() - startTime) / 1000
                 delay(1000)
             }
+        }
+    }
+
+    // Real-time Location Tracking Logic
+    DisposableEffect(isRunning) {
+        if (isRunning && hasLocationPermission) {
+            val client = LocationServices.getFusedLocationProviderClient(context)
+
+            // Configure Request: High Accuracy, Update every 3 meters or 2 seconds
+            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
+                .setMinUpdateDistanceMeters(3f)
+                .build()
+
+            val callback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    for (location in result.locations) {
+                        val newLatLng = LatLng(location.latitude, location.longitude)
+
+                        // Calculate Distance from last point
+                        if (pathPoints.isNotEmpty()) {
+                            val lastPoint = pathPoints.last()
+                            val results = FloatArray(1)
+                            Location.distanceBetween(
+                                lastPoint.latitude, lastPoint.longitude,
+                                newLatLng.latitude, newLatLng.longitude,
+                                results
+                            )
+                            // results[0] is distance in meters
+                            val distanceInMeters = results[0]
+
+                            // Filter out tiny GPS jumps (e.g. less than 1 meter movement)
+                            if (distanceInMeters > 1.0) {
+                                distanceKm += (distanceInMeters / 1000.0)
+                                pathPoints = pathPoints + newLatLng
+                                currentLocation = newLatLng
+                                cameraPositionState.position = CameraPosition.fromLatLngZoom(newLatLng, 18f)
+                            }
+                        } else {
+                            // First point
+                            pathPoints = listOf(newLatLng)
+                            currentLocation = newLatLng
+                            cameraPositionState.position = CameraPosition.fromLatLngZoom(newLatLng, 18f)
+                        }
+                    }
+                }
+            }
+
+            try {
+                @SuppressLint("MissingPermission")
+                client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            onDispose {
+                client.removeLocationUpdates(callback)
+            }
+        } else {
+            onDispose { }
         }
     }
 
@@ -270,8 +320,11 @@ fun TrackRunScreen(
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
+                        Spacer(Modifier.height(8.dp))
+                        Text("Acquiring GPS...", modifier = Modifier.padding(top = 40.dp))
                     }
                 }
+
                 // Stats Card
                 Card(
                     modifier = Modifier.align(Alignment.TopCenter).padding(16.dp),
@@ -372,6 +425,7 @@ fun TrackRunScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Discard run and go home
                         OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") }
+
                         // Save Button
                         Button(
                             modifier = Modifier.weight(1f),
@@ -413,7 +467,7 @@ fun saveRunToFirestore(
         "userId" to user.uid,
         "distanceKm" to distanceKm,
         "durationMin" to durationMin,
-        "route" to routeData, // Save route
+        "route" to routeData,
         "createdAt" to Timestamp.now()
     )
 
@@ -431,7 +485,7 @@ fun saveRunToFirestore(
                 "runId" to runRef.id,
                 "runDistance" to String.format("%.2f km", distanceKm),
                 "runDuration" to formatTime(seconds),
-                "route" to routeData, // Save route here too for easy feed display
+                "route" to routeData,
                 "createdAt" to Timestamp.now()
             )
 
