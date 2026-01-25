@@ -1,12 +1,19 @@
 package com.example.inf2215
 
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,7 +51,7 @@ fun ProfileScreen(
     val uid = auth.currentUser?.uid
 
     // User Stats
-    var displayName by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("Loading...") }
     var email by remember { mutableStateOf("") }
     var age by remember { mutableStateOf<Int?>(null) }
     var heightCm by remember { mutableStateOf<Int?>(null) }
@@ -99,7 +106,7 @@ fun ProfileScreen(
                         title = doc.getString("title") ?: "Untitled Run",
                         distanceStr = doc.getString("runDistance") ?: "0 km",
                         durationStr = doc.getString("runDuration") ?: "00:00",
-                        route = parsedRoute, // Assign route
+                        route = parsedRoute,
                         timestamp = doc.getTimestamp("createdAt")
                     )
                 } ?: emptyList()
@@ -112,49 +119,72 @@ fun ProfileScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Profile Info Card
-        Text("Runner Profile", style = MaterialTheme.typography.headlineMedium)
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            modifier = Modifier.fillMaxWidth()
+        // Profile Picture Placeholder (Matching Admin style)
+        Surface(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(CircleShape),
+            color = MaterialTheme.colorScheme.primaryContainer
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(displayName.ifBlank { "Runner" }, style = MaterialTheme.typography.titleLarge)
-                Text(email, style = MaterialTheme.typography.bodyMedium)
-                HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Age: ${age ?: "-"}")
-                    Text("Height: ${heightCm ?: "-"} cm")
-                    Text("Weight: ${weightKg ?: "-"} kg")
-                }
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Profile Picture",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Name and Email
+        Text(text = displayName, style = MaterialTheme.typography.headlineSmall)
+        Text(text = email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Stats Box (Rounded Edge Box)
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatColumn("Age", age?.toString() ?: "-")
+                StatDivider()
+                StatColumn("Height", if (heightCm != null) "${heightCm}cm" else "-")
+                StatDivider()
+                StatColumn("Weight", if (weightKg != null) "${weightKg}kg" else "-")
             }
         }
 
-        // Recent Runs Section
-        Column {
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Recent Activity Section
+        Column(modifier = Modifier.fillMaxWidth()) {
             Text("Recent Activity", style = MaterialTheme.typography.titleLarge)
-            HorizontalDivider()
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
         if (status.isNotBlank()) {
-            if (status.contains("index")) {
-                Text("Missing Index. Check Firebase Console.", color = MaterialTheme.colorScheme.error)
-            } else {
-                Text(status, color = MaterialTheme.colorScheme.error)
-            }
+            Text(status, color = MaterialTheme.colorScheme.error)
         }
 
         if (recentRuns.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Text("No runs recorded yet.", color = MaterialTheme.colorScheme.secondary)
             }
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
                 items(recentRuns) { run ->
                     RunHistoryCard(run)
@@ -162,6 +192,24 @@ fun ProfileScreen(
             }
         }
     }
+}
+
+@Composable
+fun StatColumn(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(text = label, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+fun StatDivider() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(24.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant)
+    )
 }
 
 @Composable
@@ -197,7 +245,7 @@ fun RunHistoryCard(run: ProfileRunItem) {
                 fontWeight = FontWeight.Bold
             )
 
-            // Add Map View if route exists
+            // Map View if route exists
             if (run.route.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
@@ -238,7 +286,7 @@ fun RunHistoryCard(run: ProfileRunItem) {
                     Text("Distance", style = MaterialTheme.typography.labelSmall)
                 }
 
-                Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = run.durationStr,
                         style = MaterialTheme.typography.headlineSmall,
