@@ -30,15 +30,6 @@ import java.util.Locale
 
 private const val TAG = "ProfileScreen"
 
-data class ProfileRunItem(
-    val id: String = "",
-    val title: String = "",
-    val distanceStr: String = "",
-    val durationStr: String = "",
-    val route: List<LatLng> = emptyList(),
-    val timestamp: Timestamp? = null
-)
-
 @Composable
 fun ProfileScreen(
     modifier: Modifier = Modifier,

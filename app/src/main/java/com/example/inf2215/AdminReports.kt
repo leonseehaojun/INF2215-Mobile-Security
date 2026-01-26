@@ -27,18 +27,6 @@ import com.google.firebase.firestore.Query
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-data class ReportItem(
-    val id: String = "",
-    val targetId: String = "",
-    val targetType: Int = 1, // 0: User, 1: Post, 2: Comment
-    val targetTitle: String = "",
-    val category: String = "",
-    val reason: String = "",
-    val description: String = "",
-    val reportedBy: String = "",
-    val timestamp: Timestamp? = null
-)
-
 @Composable
 fun AdminReportsScreen() {
     var selectedReport by remember { mutableStateOf<ReportItem?>(null) }

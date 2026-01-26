@@ -29,17 +29,6 @@ import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
-enum class Screen {
-    Login, Register, Home, Profile, CreatePost, TrackRun, Pending, Community, 
-    AdminAnnouncements, AdminReports, AdminLogs, AdminProfile, Notifications
-}
-
-data class NavItem(
-    val screen: Screen,
-    val label: String,
-    val icon: ImageVector
-)
-
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {

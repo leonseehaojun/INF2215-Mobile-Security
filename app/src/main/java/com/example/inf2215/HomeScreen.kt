@@ -24,20 +24,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.maps.android.compose.*
 
-data class FeedPost(
-    val id: String = "",
-    val userId: String = "",
-    val displayName: String = "",
-    val title: String = "",
-    val text: String = "",
-    val imageUrl: String? = null,
-    val type: String = "NORMAL",
-    val runDistance: String? = null,
-    val runDuration: String? = null,
-    val route: List<LatLng> = emptyList(),
-    val createdAt: Timestamp? = null
-)
-
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
