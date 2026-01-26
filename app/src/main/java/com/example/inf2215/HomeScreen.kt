@@ -18,8 +18,6 @@ import coil.compose.AsyncImage
 import com.google.android.gms.maps.GoogleMapOptions
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
-import com.google.firebase.Timestamp
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.maps.android.compose.*
@@ -210,133 +208,10 @@ fun PostCard(post: FeedPost) {
 
     if (showReportDialog) {
         ReportDialog(
-            post = post,
+            targetUserId = post.userId,
+            targetType = 1, // 1 for Post
+            attachedId = post.id,
             onDismiss = { showReportDialog = false }
         )
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ReportDialog(post: FeedPost, onDismiss: () -> Unit) {
-    var categoryExpanded by remember { mutableStateOf(false) }
-    var selectedCategory by remember { mutableStateOf("") }
-    
-    var reasonExpanded by remember { mutableStateOf(false) }
-    var selectedReason by remember { mutableStateOf("") }
-    
-    var description by remember { mutableStateOf("") }
-
-    val categories = listOf("Activity Integrity", "Social Conduct", "Content Safety")
-    val reasons = mapOf(
-        "Activity Integrity" to listOf("Incorrect Activity Type", "Cheating / Faked Data", "Duplicate / Spam Entry"),
-        "Social Conduct" to listOf("Harrassment / Bullying", "Hate Speech", "Privacy & Impersonation"),
-        "Content Safety" to listOf("Sexual / Violent Contents", "Scams / Bots", "Dangerous Behaviours")
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Report") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Category Dropdown
-                ExposedDropdownMenuBox(
-                    expanded = categoryExpanded,
-                    onExpandedChange = { categoryExpanded = !categoryExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = selectedCategory,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Category") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = categoryExpanded,
-                        onDismissRequest = { categoryExpanded = false }
-                    ) {
-                        categories.forEach { category ->
-                            DropdownMenuItem(
-                                text = { Text(category) },
-                                onClick = {
-                                    selectedCategory = category
-                                    selectedReason = ""
-                                    categoryExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Reason Dropdown
-                ExposedDropdownMenuBox(
-                    expanded = reasonExpanded && selectedCategory.isNotEmpty(),
-                    onExpandedChange = { if (selectedCategory.isNotEmpty()) reasonExpanded = !reasonExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = selectedReason,
-                        onValueChange = {},
-                        readOnly = true,
-                        enabled = selectedCategory.isNotEmpty(),
-                        label = { Text("Reason") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = reasonExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = reasonExpanded && selectedCategory.isNotEmpty(),
-                        onDismissRequest = { reasonExpanded = false }
-                    ) {
-                        reasons[selectedCategory]?.forEach { reason ->
-                            DropdownMenuItem(
-                                text = { Text(reason) },
-                                onClick = {
-                                    selectedReason = reason
-                                    reasonExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Description Text Box
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description") },
-                    placeholder = { Text("Enter description here") },
-                    modifier = Modifier.fillMaxWidth().height(100.dp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val db = FirebaseFirestore.getInstance()
-                    val reportData = hashMapOf(
-                        "targetId" to post.id,
-                        "targetType" to 1, // 1 for Post
-                        "targetTitle" to post.title.ifBlank { "Untitled Post" },
-                        "category" to selectedCategory,
-                        "reason" to selectedReason,
-                        "description" to description,
-                        "timestamp" to Timestamp.now(),
-                        "reportedBy" to (FirebaseAuth.getInstance().currentUser?.uid ?: "Unknown")
-                    )
-                    db.collection("reports").add(reportData).addOnSuccessListener {
-                        onDismiss()
-                    }
-                },
-                enabled = selectedReason.isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-            ) {
-                Text("Report", color = Color.White)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }

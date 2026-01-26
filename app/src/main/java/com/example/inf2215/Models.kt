@@ -31,9 +31,10 @@ data class FeedPost(
 
 data class ReportItem(
     val id: String = "",
-    val targetId: String = "",
+    val targetUserId: String = "",
     val targetType: Int = 1, // 0: User, 1: Post, 2: Comment
-    val targetTitle: String = "",
+    val attachedId: String? = null,
+    val title: String = "",
     val category: String = "",
     val reason: String = "",
     val description: String = "",

@@ -5,7 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
@@ -160,9 +162,18 @@ fun ReportList(onReportClick: (ReportItem) -> Unit) {
             }
         }
 
+        // List Header
+        Text(
+            text = "Reports (${reports.size})",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+        )
+
+        // Scrollable List
         LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = 32.dp, start = 16.dp, end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(reports) { report ->
@@ -258,7 +269,7 @@ fun ReportCard(report: ReportItem, onClick: () -> Unit) {
                 Badge(containerColor = MaterialTheme.colorScheme.tertiaryContainer) { Text(typeLabel) }
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = report.targetTitle.ifBlank { "ID: ${report.targetId}" },
+                    text = report.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -283,43 +294,58 @@ fun ReportCard(report: ReportItem, onClick: () -> Unit) {
             val dateStr = report.timestamp?.toDate()?.let { 
                 SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(it) 
             } ?: ""
-            Text(dateStr, style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.End))
+            Text(
+                dateStr, 
+                style = MaterialTheme.typography.labelSmall, 
+                modifier = Modifier.align(Alignment.End).fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End
+            )
         }
     }
 }
 
 @Composable
 fun ReportDetail(report: ReportItem, onBack: () -> Unit) {
+    val scrollState = rememberScrollState()
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
         }
         
-        Text("Report Details", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(24.dp))
-        
-        DetailItem("Target", report.targetTitle.ifBlank { report.targetId })
-        DetailItem("Type", when(report.targetType) { 0 -> "User"; 1 -> "Post"; else -> "Comment" })
-        DetailItem("Category", report.category)
-        DetailItem("Reason", report.reason)
-        DetailItem("Reporter ID", report.reportedBy)
-        
-        Spacer(Modifier.height(16.dp))
-        Text("Description", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(8.dp)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(scrollState)
         ) {
-            Text(
-                text = report.description.ifBlank { "No description provided." },
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyLarge
-            )
+            Text("Report Details", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(24.dp))
+            
+            DetailItem("Report Title", report.title)
+            DetailItem("Target User ID", report.targetUserId)
+            DetailItem("Attached ID", report.attachedId ?: "N/A")
+            DetailItem("Type", when(report.targetType) { 0 -> "User"; 1 -> "Post"; else -> "Comment" })
+            DetailItem("Category", report.category)
+            DetailItem("Reason", report.reason)
+            DetailItem("Reporter ID", report.reportedBy)
+            
+            Spacer(Modifier.height(16.dp))
+            Text("Description", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = report.description.ifBlank { "No description provided." },
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            Spacer(Modifier.height(16.dp))
         }
         
-        Spacer(Modifier.weight(1f))
-        
+        Spacer(Modifier.height(16.dp))
+
         Button(
             onClick = { /* TODO: Implement action like Delete Post */ },
             modifier = Modifier.fillMaxWidth(),
