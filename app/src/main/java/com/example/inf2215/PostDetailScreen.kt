@@ -10,7 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -226,6 +228,9 @@ fun CommentItem(
     indentation: Int,
     onReplyClick: (Comment) -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -250,19 +255,49 @@ fun CommentItem(
             )
         }
         Spacer(Modifier.width(12.dp))
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
                     text = comment.displayName,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    fontSize = if (indentation > 0) 13.sp else 14.sp
+                    fontSize = if (indentation > 0) 13.sp else 14.sp,
+                    modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
                 val dateStr = comment.timestamp?.toDate()?.let {
                     SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(it)
                 } ?: ""
                 Text(text = dateStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                
+                Box {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Report") },
+                            onClick = {
+                                showMenu = false
+                                showReportDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Report, contentDescription = null) }
+                        )
+                    }
+                }
             }
             Text(
                 text = comment.text,
@@ -279,4 +314,16 @@ fun CommentItem(
             }
         }
     }
+
+    if (showReportDialog) {
+        ReportDialog(
+            targetUserId = comment.userId,
+            targetType = 2, // 2 for Comment
+            attachedId = comment.id,
+            onDismiss = { showReportDialog = false }
+        )
+    }
 }
+
+// Extension function to help with icon size
+private fun Modifier.size(size: Int) = this.size(size.dp)
