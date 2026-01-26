@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
                 var screen by remember { mutableStateOf(Screen.Login) }
                 var userRole by remember { mutableStateOf("public") }
                 var showPostTypeDialog by remember { mutableStateOf(false) }
+                var selectedPostId by remember { mutableStateOf<String?>(null) }
                 
                 // Placeholder for unread notifications state
                 var hasNewNotifications by remember { mutableStateOf(true) }
@@ -86,7 +88,11 @@ class MainActivity : ComponentActivity() {
                         if (showBars) {
                             CenterAlignedTopAppBar(
                                 navigationIcon = {
-                                    if (userRole == "admin") {
+                                    if (screen == Screen.PostDetail) {
+                                        IconButton(onClick = { screen = Screen.Home }) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                        }
+                                    } else if (userRole == "admin") {
                                         TextButton(
                                             onClick = { 
                                                 if (isAdminMode) {
@@ -134,6 +140,7 @@ class MainActivity : ComponentActivity() {
                                             Screen.AdminReports -> "Admin Reports"
                                             Screen.AdminLogs -> "Admin Logs"
                                             Screen.Notifications -> "Alerts"
+                                            Screen.PostDetail -> "Post Details"
                                             else -> ""
                                         }
                                     )
@@ -254,7 +261,11 @@ class MainActivity : ComponentActivity() {
                                 onLogout = { screen = Screen.Login },
                                 onGoProfile = { screen = Screen.Profile },
                                 onNavigateToCreatePost = { screen = Screen.CreatePost },
-                                onNavigateToTrackRun = { screen = Screen.TrackRun }
+                                onNavigateToTrackRun = { screen = Screen.TrackRun },
+                                onNavigateToPostDetail = { postId ->
+                                    selectedPostId = postId
+                                    screen = Screen.PostDetail
+                                }
                             )
 
                             Screen.Profile -> ProfileScreen(
@@ -299,6 +310,15 @@ class MainActivity : ComponentActivity() {
                             Screen.AdminLogs -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text("Admin Logs Content")
+                                }
+                            }
+
+                            Screen.PostDetail -> {
+                                selectedPostId?.let { postId ->
+                                    PostDetailScreen(
+                                        postId = postId,
+                                        onBack = { screen = Screen.Home }
+                                    )
                                 }
                             }
                         }

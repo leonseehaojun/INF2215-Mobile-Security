@@ -6,7 +6,8 @@ import com.google.firebase.Timestamp
 
 enum class Screen {
     Login, Register, Home, Profile, CreatePost, TrackRun, Pending, Community, 
-    AdminAnnouncements, AdminReports, AdminLogs, AdminProfile, Notifications
+    AdminAnnouncements, AdminReports, AdminLogs, AdminProfile, Notifications,
+    PostDetail
 }
 
 data class NavItem(
@@ -26,7 +27,19 @@ data class FeedPost(
     val runDistance: String? = null,
     val runDuration: String? = null,
     val route: List<LatLng> = emptyList(),
-    val createdAt: Timestamp? = null
+    val createdAt: Timestamp? = null,
+    val likes: List<String> = emptyList(),
+    val commentsCount: Int = 0
+)
+
+data class Comment(
+    val id: String = "",
+    val postId: String = "",
+    val userId: String = "",
+    val displayName: String = "",
+    val text: String = "",
+    val timestamp: Timestamp? = null,
+    val parentId: String? = null // For replies
 )
 
 data class ReportItem(
