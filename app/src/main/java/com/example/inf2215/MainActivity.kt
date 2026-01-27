@@ -5,14 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
@@ -39,10 +31,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             INF2215Theme {
                 var screen by remember { mutableStateOf(Screen.Login) }
+                var previousScreen by remember { mutableStateOf(Screen.Home) }
+
                 var userRole by remember { mutableStateOf("public") }
                 var showPostTypeDialog by remember { mutableStateOf(false) }
+
                 var selectedPostId by remember { mutableStateOf<String?>(null) }
-                
+                var selectedGroupId by remember { mutableStateOf<String?>(null) }
+                var selectedThreadId by remember { mutableStateOf<String?>(null) }
+
+                // For 1-to-1 chat
+                var chatOtherUid by remember { mutableStateOf<String?>(null) }
+                var chatOtherName by remember { mutableStateOf<String?>(null) }
+
                 // Placeholder for unread notifications state
                 var hasNewNotifications by remember { mutableStateOf(true) }
 
@@ -61,9 +62,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // ✅ Bottom nav: use ChatInbox as the tab (NOT direct Chat)
                 val userNavItems = listOf(
                     NavItem(Screen.Home, "Home", Icons.Default.Home),
-                    NavItem(Screen.Pending, "Pending", Icons.Default.Pending),
+                    NavItem(Screen.ChatInbox, "Chat", Icons.Default.Chat),
                     NavItem(Screen.CreatePost, "Post", Icons.Default.Add),
                     NavItem(Screen.Community, "Community", Icons.Default.Group),
                     NavItem(Screen.Profile, "Profile", Icons.Default.Person)
@@ -77,9 +79,10 @@ class MainActivity : ComponentActivity() {
                 )
 
                 val isAdminMode = screen in listOf(
-                    Screen.AdminAnnouncements, Screen.AdminReports, 
+                    Screen.AdminAnnouncements, Screen.AdminReports,
                     Screen.AdminLogs, Screen.AdminProfile
                 )
+
                 val showBars = screen !in listOf(Screen.Login, Screen.Register)
 
                 Scaffold(
@@ -88,13 +91,23 @@ class MainActivity : ComponentActivity() {
                         if (showBars) {
                             CenterAlignedTopAppBar(
                                 navigationIcon = {
-                                    if (screen == Screen.PostDetail) {
-                                        IconButton(onClick = { screen = Screen.Home }) {
+                                    // Show back icon for detail-type screens
+                                    val needsBack = screen in listOf(
+                                        Screen.PostDetail,
+                                        Screen.GroupDetail,
+                                        Screen.ThreadDetail,
+                                        Screen.ChatRoom,
+                                        Screen.CreateGroup,
+                                        Screen.CreateThread
+                                    )
+
+                                    if (needsBack) {
+                                        IconButton(onClick = { screen = previousScreen }) {
                                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                                         }
                                     } else if (userRole == "admin") {
                                         TextButton(
-                                            onClick = { 
+                                            onClick = {
                                                 if (isAdminMode) {
                                                     screen = Screen.Home
                                                 } else {
@@ -110,19 +123,11 @@ class MainActivity : ComponentActivity() {
                                                     color = MaterialTheme.colorScheme.primaryContainer,
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
-                                            } else {
-                                                Modifier
-                                            }
+                                            } else Modifier
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Icon(
-                                                    imageVector = Icons.Default.AdminPanelSettings,
-                                                    contentDescription = "Admin"
-                                                )
-                                                Text(
-                                                    text = "Admin",
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
+                                                Icon(Icons.Default.AdminPanelSettings, contentDescription = "Admin")
+                                                Text("Admin", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
                                     }
@@ -134,11 +139,20 @@ class MainActivity : ComponentActivity() {
                                             Screen.Profile, Screen.AdminProfile -> "Profile"
                                             Screen.TrackRun -> "Record Run"
                                             Screen.CreatePost -> "New Post"
-                                            Screen.Pending -> "Pending"
+
+                                            Screen.ChatInbox -> "Chats"
+                                            Screen.ChatRoom -> (chatOtherName ?: "Chat")
+
                                             Screen.Community -> "Community"
+                                            Screen.CreateGroup -> "Create Group"
+                                            Screen.GroupDetail -> "Group"
+                                            Screen.CreateThread -> "Create Thread"
+                                            Screen.ThreadDetail -> "Thread"
+
                                             Screen.AdminAnnouncements -> "Admin Announcements"
                                             Screen.AdminReports -> "Admin Reports"
                                             Screen.AdminLogs -> "Admin Logs"
+
                                             Screen.Notifications -> "Alerts"
                                             Screen.PostDetail -> "Post Details"
                                             else -> ""
@@ -146,19 +160,19 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                                 actions = {
-                                    if (screen in listOf(Screen.Home, Screen.Pending, Screen.Community, Screen.Notifications)) {
+                                    if (screen in listOf(Screen.Home, Screen.ChatInbox, Screen.Community, Screen.Notifications)) {
                                         val isNotifActive = screen == Screen.Notifications
-                                        // Orange/Amber theme for Alerts
-                                        val alertActiveColor = Color(0xFFF57C00) 
+                                        val alertActiveColor = Color(0xFFF57C00)
                                         val alertContainerColor = Color(0xFFFFF3E0)
 
                                         TextButton(
-                                            onClick = { 
+                                            onClick = {
                                                 if (isNotifActive) {
                                                     screen = Screen.Home
                                                 } else {
-                                                    screen = Screen.Notifications 
-                                                    hasNewNotifications = false // Reset dot when clicked
+                                                    previousScreen = screen
+                                                    screen = Screen.Notifications
+                                                    hasNewNotifications = false
                                                 }
                                             },
                                             shape = RoundedCornerShape(12.dp),
@@ -166,13 +180,8 @@ class MainActivity : ComponentActivity() {
                                                 contentColor = if (isNotifActive) alertActiveColor else Color.Gray
                                             ),
                                             modifier = if (isNotifActive) {
-                                                Modifier.background(
-                                                    color = alertContainerColor,
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
-                                            } else {
-                                                Modifier
-                                            }
+                                                Modifier.background(alertContainerColor, RoundedCornerShape(12.dp))
+                                            } else Modifier
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 BadgedBox(
@@ -187,15 +196,9 @@ class MainActivity : ComponentActivity() {
                                                         }
                                                     }
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Notifications,
-                                                        contentDescription = "Notice"
-                                                    )
+                                                    Icon(Icons.Default.Notifications, contentDescription = "Notice")
                                                 }
-                                                Text(
-                                                    text = "Notice",
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
+                                                Text("Notice", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
                                     } else if (screen == Screen.Profile || screen == Screen.AdminProfile) {
@@ -208,14 +211,8 @@ class MainActivity : ComponentActivity() {
                                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.Logout,
-                                                    contentDescription = "Log Out"
-                                                )
-                                                Text(
-                                                    text = "Log Out",
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
+                                                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Log Out")
+                                                Text("Log Out", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
                                     }
@@ -224,7 +221,18 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     bottomBar = {
-                        if (showBars && screen != Screen.CreatePost) {
+                        // ✅ hide bottom bar on CreatePost + detail screens for cleaner UX
+                        val hideBottomBar = screen in listOf(
+                            Screen.CreatePost,
+                            Screen.PostDetail,
+                            Screen.ChatRoom,
+                            Screen.GroupDetail,
+                            Screen.ThreadDetail,
+                            Screen.CreateGroup,
+                            Screen.CreateThread
+                        )
+
+                        if (showBars && !hideBottomBar) {
                             val currentNavItems = if (isAdminMode) adminNavItems else userNavItems
                             NavigationBar {
                                 currentNavItems.forEach { item ->
@@ -263,6 +271,7 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToCreatePost = { screen = Screen.CreatePost },
                                 onNavigateToTrackRun = { screen = Screen.TrackRun },
                                 onNavigateToPostDetail = { postId ->
+                                    previousScreen = Screen.Home
                                     selectedPostId = postId
                                     screen = Screen.PostDetail
                                 }
@@ -270,7 +279,13 @@ class MainActivity : ComponentActivity() {
 
                             Screen.Profile -> ProfileScreen(
                                 onBack = { screen = Screen.Home },
-                                onLogout = { screen = Screen.Login }
+                                onLogout = { screen = Screen.Login },
+                                onStartChat = { otherUid, otherName ->
+                                    chatOtherUid = otherUid
+                                    chatOtherName = otherName
+                                    previousScreen = Screen.Profile
+                                    screen = Screen.ChatRoom
+                                }
                             )
 
                             Screen.AdminProfile -> AdminProfileScreen()
@@ -287,15 +302,87 @@ class MainActivity : ComponentActivity() {
 
                             Screen.Notifications -> NotificationScreen()
 
-                            Screen.Pending -> {
-                                Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    Text("Pending Screen - Coming Soon")
+                            //Chat tab goes here (inbox/list of chats)
+                            Screen.ChatInbox -> ChatInboxScreen(
+                                onOpenChat = { otherUid, otherName ->
+                                    chatOtherUid = otherUid
+                                    chatOtherName = otherName
+                                    previousScreen = Screen.ChatInbox
+                                    screen = Screen.ChatRoom
+                                }
+                            )
+
+                            // 1-to-1 chat screen (opened from inbox/friends)
+                            Screen.ChatRoom -> {
+                                val otherUid = chatOtherUid
+                                val otherName = chatOtherName
+                                if (otherUid != null && otherName != null) {
+                                    ChatScreen(
+                                        otherUserId = otherUid,
+                                        otherDisplayName = otherName,
+                                        onBack = { screen = previousScreen }
+                                    )
+                                } else {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No chat selected.")
+                                    }
                                 }
                             }
 
-                            Screen.Community -> {
-                                Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    Text("Community Screen - Coming Soon")
+                            Screen.Community -> CommunityScreen(
+                                onCreateGroup = {
+                                    previousScreen = Screen.Community
+                                    screen = Screen.CreateGroup
+                                },
+                                onOpenGroup = { groupId ->
+                                    selectedGroupId = groupId
+                                    previousScreen = Screen.Community
+                                    screen = Screen.GroupDetail
+                                },
+                                onCreateThread = {
+                                    previousScreen = Screen.Community
+                                    screen = Screen.CreateThread
+                                },
+                                onOpenThread = { threadId ->
+                                    selectedThreadId = threadId
+                                    previousScreen = Screen.Community
+                                    screen = Screen.ThreadDetail
+                                }
+                            )
+
+                            Screen.CreateGroup -> CreateGroupScreen(
+                                onCreated = { newGroupId ->
+                                    selectedGroupId = newGroupId
+                                    previousScreen = Screen.Community
+                                    screen = Screen.GroupDetail
+                                },
+                                onCancel = { screen = Screen.Community }
+                            )
+
+                            Screen.GroupDetail -> {
+                                selectedGroupId?.let { gid ->
+                                    GroupDetailScreen(
+                                        groupId = gid,
+                                        onBack = { screen = Screen.Community }
+                                    )
+                                }
+                            }
+
+                            Screen.CreateThread -> CreateThreadScreen(
+                                onCreated = { newThreadId ->
+                                    selectedThreadId = newThreadId
+                                    previousScreen = Screen.Community
+                                    screen = Screen.ThreadDetail
+                                },
+                                onCancel = { screen = Screen.Community }
+                            )
+
+                            Screen.ThreadDetail -> {
+                                selectedThreadId?.let { tid ->
+                                    ThreadDetailScreen(
+                                        threadId = tid,
+                                        onBack = { screen = Screen.Community }
+                                    )
                                 }
                             }
 
@@ -317,8 +404,14 @@ class MainActivity : ComponentActivity() {
                                 selectedPostId?.let { postId ->
                                     PostDetailScreen(
                                         postId = postId,
-                                        onBack = { screen = Screen.Home }
+                                        onBack = { screen = previousScreen }
                                     )
+                                }
+                            }
+
+                            else -> {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("Screen not implemented.")
                                 }
                             }
                         }
@@ -333,6 +426,7 @@ class MainActivity : ComponentActivity() {
                             confirmButton = {
                                 TextButton(onClick = {
                                     showPostTypeDialog = false
+                                    previousScreen = Screen.Home
                                     screen = Screen.TrackRun
                                 }) {
                                     Icon(Icons.AutoMirrored.Filled.DirectionsRun, null)
@@ -343,6 +437,7 @@ class MainActivity : ComponentActivity() {
                             dismissButton = {
                                 TextButton(onClick = {
                                     showPostTypeDialog = false
+                                    previousScreen = Screen.Home
                                     screen = Screen.CreatePost
                                 }) {
                                     Icon(Icons.Default.Edit, null)

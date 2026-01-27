@@ -62,7 +62,10 @@ fun CreatePostScreen(
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var isPosting by remember { mutableStateOf(false) }
 
-    // Image Picker
+    // Public vs Friend tab
+    val visibilityOptions = listOf("PUBLIC", "FRIENDS")
+    var visibility by remember { mutableStateOf("PUBLIC") }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri -> selectedImageUri = uri }
@@ -79,7 +82,6 @@ fun CreatePostScreen(
             value = title,
             onValueChange = { title = it },
             label = { Text("Title *") },
-            isError = title.isBlank() && text.isNotBlank(), // Visual cue if they start typing body but no title
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -93,9 +95,29 @@ fun CreatePostScreen(
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
 
+        Spacer(Modifier.height(8.dp))
+
+        // NEW: Visibility Segmented Buttons
+        Text("Who can see this?", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(6.dp))
+
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            visibilityOptions.forEachIndexed { index, opt ->
+                SegmentedButton(
+                    selected = (visibility == opt),
+                    onClick = { visibility = opt },
+                    shape = SegmentedButtonDefaults.itemShape(index, visibilityOptions.size)
+                ) {
+                    Text(opt)
+                }
+            }
+        }
+
         // Image Preview
         if (selectedImageUri != null) {
-            Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)
+            ) {
                 AsyncImage(
                     model = selectedImageUri,
                     contentDescription = null,
@@ -126,11 +148,13 @@ fun CreatePostScreen(
             TextButton(onClick = onCancel) { Text("Cancel") }
 
             Button(
-                // Button is only enabled if Title is not blank AND (Text or Image exists)
                 enabled = !isPosting && title.isNotBlank() && (text.isNotBlank() || selectedImageUri != null),
                 onClick = {
                     isPosting = true
-                    val user = auth.currentUser ?: return@Button
+                    val user = auth.currentUser ?: run {
+                        isPosting = false
+                        return@Button
+                    }
 
                     val savePost = { imageUrl: String? ->
                         db.collection("users").document(user.uid).get().addOnSuccessListener { doc ->
@@ -143,19 +167,27 @@ fun CreatePostScreen(
                                 "text" to text,
                                 "imageUrl" to imageUrl,
                                 "type" to "NORMAL",
+                                "visibility" to visibility,
                                 "createdAt" to Timestamp.now()
                             )
+
                             db.collection("posts").add(postData).addOnSuccessListener {
                                 isPosting = false
                                 onPostSuccess()
+                            }.addOnFailureListener {
+                                isPosting = false
                             }
+                        }.addOnFailureListener {
+                            isPosting = false
                         }
                     }
 
                     if (selectedImageUri != null) {
-                        uploadImageToStorage(selectedImageUri!!, onSuccess = { url ->
-                            savePost(url)
-                        }, onError = { isPosting = false })
+                        uploadImageToStorage(
+                            selectedImageUri!!,
+                            onSuccess = { url -> savePost(url) },
+                            onError = { isPosting = false }
+                        )
                     } else {
                         savePost(null)
                     }
@@ -482,6 +514,7 @@ fun saveRunToFirestore(
                 "title" to title,
                 "text" to description.ifBlank { "Completed a run!" },
                 "type" to "RUN",
+                "visibility" to "PUBLIC",
                 "runId" to runRef.id,
                 "runDistance" to String.format("%.2f km", distanceKm),
                 "runDuration" to formatTime(seconds),

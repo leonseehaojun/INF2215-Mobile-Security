@@ -5,9 +5,12 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
 
 enum class Screen {
-    Login, Register, Home, Profile, CreatePost, TrackRun, Pending, Community, 
+    Login, Register, Home, Profile, CreatePost, TrackRun, Chat, Community,
     AdminAnnouncements, AdminReports, AdminLogs, AdminProfile, Notifications,
-    PostDetail
+    PostDetail,
+    ChatInbox,ChatRoom,
+    CreateGroup, GroupDetail,
+    CreateThread, ThreadDetail
 }
 
 data class NavItem(
@@ -62,4 +65,19 @@ data class ProfileRunItem(
     val durationStr: String = "",
     val route: List<LatLng> = emptyList(),
     val timestamp: Timestamp? = null
+)
+
+data class ChatThread(
+    val chatId: String = "",
+    val otherUserId: String = "",
+    val otherName: String = "Chat",
+    val lastMessage: String = "",
+    val lastTimestamp: Timestamp? = null
+)
+
+data class ChatMessage(
+    val id: String = "",
+    val senderId: String = "",
+    val text: String = "",
+    val createdAt: Timestamp? = null
 )
