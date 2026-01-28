@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
 
                 var selectedPostId by remember { mutableStateOf<String?>(null) }
                 var selectedGroupId by remember { mutableStateOf<String?>(null) }
+
                 var selectedThreadId by remember { mutableStateOf<String?>(null) }
 
                 // For 1-to-1 chat
@@ -62,7 +63,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // ✅ Bottom nav: use ChatInbox as the tab (NOT direct Chat)
+                // Bottom nav: use ChatInbox as the tab
                 val userNavItems = listOf(
                     NavItem(Screen.Home, "Home", Icons.Default.Home),
                     NavItem(Screen.ChatInbox, "Chat", Icons.Default.Chat),
@@ -91,28 +92,28 @@ class MainActivity : ComponentActivity() {
                         if (showBars) {
                             CenterAlignedTopAppBar(
                                 navigationIcon = {
-                                    // Show back icon for detail-type screens
+                                    // Back icon for detail-type screens
                                     val needsBack = screen in listOf(
                                         Screen.PostDetail,
                                         Screen.GroupDetail,
-                                        Screen.ThreadDetail,
+                                        Screen.CreateGroupThread,
+                                        Screen.GroupThreadDetail,
                                         Screen.ChatRoom,
-                                        Screen.CreateGroup,
-                                        Screen.CreateThread
+                                        Screen.CreateGroup
                                     )
 
                                     if (needsBack) {
                                         IconButton(onClick = { screen = previousScreen }) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.ArrowBack,
+                                                contentDescription = "Back"
+                                            )
                                         }
                                     } else if (userRole == "admin") {
                                         TextButton(
                                             onClick = {
-                                                if (isAdminMode) {
-                                                    screen = Screen.Home
-                                                } else {
-                                                    screen = Screen.AdminAnnouncements
-                                                }
+                                                if (isAdminMode) screen = Screen.Home
+                                                else screen = Screen.AdminAnnouncements
                                             },
                                             shape = RoundedCornerShape(12.dp),
                                             colors = ButtonDefaults.textButtonColors(
@@ -146,8 +147,9 @@ class MainActivity : ComponentActivity() {
                                             Screen.Community -> "Community"
                                             Screen.CreateGroup -> "Create Group"
                                             Screen.GroupDetail -> "Group"
-                                            Screen.CreateThread -> "Create Thread"
-                                            Screen.ThreadDetail -> "Thread"
+
+                                            Screen.CreateGroupThread -> "Create Thread"
+                                            Screen.GroupThreadDetail -> "Thread"
 
                                             Screen.AdminAnnouncements -> "Admin Announcements"
                                             Screen.AdminReports -> "Admin Reports"
@@ -221,15 +223,15 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     bottomBar = {
-                        // ✅ hide bottom bar on CreatePost + detail screens for cleaner UX
+                        // Hide bottom bar on CreatePost + detail screens
                         val hideBottomBar = screen in listOf(
                             Screen.CreatePost,
                             Screen.PostDetail,
                             Screen.ChatRoom,
                             Screen.GroupDetail,
-                            Screen.ThreadDetail,
                             Screen.CreateGroup,
-                            Screen.CreateThread
+                            Screen.CreateGroupThread,
+                            Screen.GroupThreadDetail
                         )
 
                         if (showBars && !hideBottomBar) {
@@ -302,7 +304,6 @@ class MainActivity : ComponentActivity() {
 
                             Screen.Notifications -> NotificationScreen()
 
-                            //Chat tab goes here (inbox/list of chats)
                             Screen.ChatInbox -> ChatInboxScreen(
                                 onOpenChat = { otherUid, otherName ->
                                     chatOtherUid = otherUid
@@ -312,7 +313,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
 
-                            // 1-to-1 chat screen (opened from inbox/friends)
                             Screen.ChatRoom -> {
                                 val otherUid = chatOtherUid
                                 val otherName = chatOtherName
@@ -329,6 +329,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                            // Community = Groups only
                             Screen.Community -> CommunityScreen(
                                 onCreateGroup = {
                                     previousScreen = Screen.Community
@@ -338,15 +339,6 @@ class MainActivity : ComponentActivity() {
                                     selectedGroupId = groupId
                                     previousScreen = Screen.Community
                                     screen = Screen.GroupDetail
-                                },
-                                onCreateThread = {
-                                    previousScreen = Screen.Community
-                                    screen = Screen.CreateThread
-                                },
-                                onOpenThread = { threadId ->
-                                    selectedThreadId = threadId
-                                    previousScreen = Screen.Community
-                                    screen = Screen.ThreadDetail
                                 }
                             )
 
@@ -360,29 +352,64 @@ class MainActivity : ComponentActivity() {
                             )
 
                             Screen.GroupDetail -> {
-                                selectedGroupId?.let { gid ->
+                                val gid = selectedGroupId
+                                if (gid != null) {
                                     GroupDetailScreen(
                                         groupId = gid,
-                                        onBack = { screen = Screen.Community }
+                                        onBack = { screen = Screen.Community },
+
+                                        onCreateThread = { groupIdFromScreen ->
+                                            selectedGroupId = groupIdFromScreen
+                                            previousScreen = Screen.GroupDetail
+                                            screen = Screen.CreateGroupThread
+                                        },
+
+                                        onOpenThread = { groupIdFromScreen, threadIdFromScreen ->
+                                            selectedGroupId = groupIdFromScreen
+                                            selectedThreadId = threadIdFromScreen
+                                            previousScreen = Screen.GroupDetail
+                                            screen = Screen.GroupThreadDetail
+                                        }
                                     )
+                                } else {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No group selected.")
+                                    }
                                 }
                             }
 
-                            Screen.CreateThread -> CreateThreadScreen(
-                                onCreated = { newThreadId ->
-                                    selectedThreadId = newThreadId
-                                    previousScreen = Screen.Community
-                                    screen = Screen.ThreadDetail
-                                },
-                                onCancel = { screen = Screen.Community }
-                            )
-
-                            Screen.ThreadDetail -> {
-                                selectedThreadId?.let { tid ->
-                                    ThreadDetailScreen(
-                                        threadId = tid,
-                                        onBack = { screen = Screen.Community }
+                            Screen.CreateGroupThread -> {
+                                val gid = selectedGroupId
+                                if (gid != null) {
+                                    CreateGroupThreadScreen(
+                                        groupId = gid,
+                                        onCreated = { newTid ->
+                                            selectedThreadId = newTid
+                                            previousScreen = Screen.GroupDetail
+                                            screen = Screen.GroupThreadDetail
+                                        },
+                                        onCancel = { screen = Screen.GroupDetail }
                                     )
+                                } else {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No group selected.")
+                                    }
+                                }
+                            }
+
+                            Screen.GroupThreadDetail -> {
+                                val gid = selectedGroupId
+                                val tid = selectedThreadId
+                                if (gid != null && tid != null) {
+                                    GroupThreadDetailScreen(
+                                        groupId = gid,
+                                        threadId = tid,
+                                        onBack = { screen = previousScreen }
+                                    )
+                                } else {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No thread selected.")
+                                    }
                                 }
                             }
 

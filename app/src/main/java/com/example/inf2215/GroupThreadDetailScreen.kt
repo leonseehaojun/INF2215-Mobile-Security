@@ -15,49 +15,70 @@ import com.google.firebase.firestore.Query
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-data class ThreadComment(
-    val id: String = "",
-    val userId: String = "",
-    val displayName: String = "",
-    val text: String = "",
-    val createdAt: Timestamp? = null
-)
-
 @Composable
-fun ThreadDetailScreen(
+fun GroupThreadDetailScreen(
+    groupId: String,
     threadId: String,
     onBack: () -> Unit
 ) {
-    val db = FirebaseFirestore.getInstance()
-    val auth = FirebaseAuth.getInstance()
+    val db = remember { FirebaseFirestore.getInstance() }
+    val auth = remember { FirebaseAuth.getInstance() }
     val me = auth.currentUser?.uid
 
     var title by remember { mutableStateOf("Loading...") }
-    var category by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     var createdByName by remember { mutableStateOf("") }
     var commentsCount by remember { mutableStateOf(0) }
 
-    var comments by remember { mutableStateOf(listOf<ThreadComment>()) }
+    var comments by remember { mutableStateOf(listOf<GroupThreadComment>()) }
     var newComment by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
 
-    LaunchedEffect(threadId) {
-        db.collection("threads").document(threadId)
-            .addSnapshotListener { doc, _ ->
-                if (doc == null || !doc.exists()) return@addSnapshotListener
-                title = doc.getString("title") ?: "Untitled"
-                category = doc.getString("category") ?: "General"
-                body = doc.getString("body") ?: ""
-                createdByName = doc.getString("createdByName") ?: "Unknown"
-                commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt()
+    val threadRef = remember(groupId, threadId) {
+        db.collection("groups").document(groupId)
+            .collection("threads").document(threadId)
+    }
+
+    DisposableEffect(groupId, threadId) {
+        // Thread header listener
+        val regHeader = threadRef.addSnapshotListener { doc, e ->
+            if (e != null) {
+                status = "Error loading thread: ${e.message}"
+                title = "Error"
+                body = ""
+                createdByName = ""
+                commentsCount = 0
+                return@addSnapshotListener
             }
 
-        db.collection("threads").document(threadId)
-            .collection("comments")
+            if (doc == null || !doc.exists()) {
+                status = "Thread not found: groups/$groupId/threads/$threadId"
+                title = "Thread not found"
+                body = ""
+                createdByName = ""
+                commentsCount = 0
+                return@addSnapshotListener
+            }
+
+            status = ""
+            title = doc.getString("title") ?: "Untitled"
+            body = doc.getString("body") ?: ""
+            createdByName = doc.getString("createdByName") ?: "Unknown"
+            commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt()
+        }
+
+        // Comments listener
+        val regComments = threadRef.collection("comments")
             .orderBy("createdAt", Query.Direction.ASCENDING)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, e ->
+                if (e != null) {
+                    status = "Error loading comments: ${e.message}"
+                    comments = emptyList()
+                    return@addSnapshotListener
+                }
+
                 comments = snap?.documents?.map { d ->
-                    ThreadComment(
+                    GroupThreadComment(
                         id = d.id,
                         userId = d.getString("userId") ?: "",
                         displayName = d.getString("displayName") ?: "User",
@@ -66,6 +87,11 @@ fun ThreadDetailScreen(
                     )
                 } ?: emptyList()
             }
+
+        onDispose {
+            regHeader.remove()
+            regComments.remove()
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -77,6 +103,15 @@ fun ThreadDetailScreen(
             TextButton(onClick = onBack) { Text("Back") }
         }
 
+        if (status.isNotBlank()) {
+            Text(
+                status,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -86,10 +121,11 @@ fun ThreadDetailScreen(
                 Card {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(title, style = MaterialTheme.typography.titleMedium)
-                        Text("Category: $category", style = MaterialTheme.typography.bodySmall)
-                        Text("By: $createdByName", style = MaterialTheme.typography.bodySmall)
+                        if (createdByName.isNotBlank()) {
+                            Text("By: $createdByName", style = MaterialTheme.typography.bodySmall)
+                        }
                         Spacer(Modifier.height(10.dp))
-                        Text(body)
+                        if (body.isNotBlank()) Text(body)
                         Spacer(Modifier.height(10.dp))
                         Text("Comments: $commentsCount", style = MaterialTheme.typography.labelMedium)
                     }
@@ -111,7 +147,7 @@ fun ThreadDetailScreen(
             }
         }
 
-        // comment input
+        // Comment input
         Surface(tonalElevation = 3.dp) {
             Row(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
                 OutlinedTextField(
@@ -139,7 +175,6 @@ fun ThreadDetailScreen(
                                 "createdAt" to now
                             )
 
-                            val threadRef = db.collection("threads").document(threadId)
                             threadRef.collection("comments").add(data)
                                 .addOnSuccessListener {
                                     threadRef.update(
@@ -152,7 +187,7 @@ fun ThreadDetailScreen(
                                 }
                         }
                     },
-                    enabled = newComment.trim().isNotBlank()
+                    enabled = newComment.trim().isNotBlank() && title != "Thread not found"
                 ) { Text("Send") }
             }
         }

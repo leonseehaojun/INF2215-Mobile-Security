@@ -5,12 +5,31 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
 
 enum class Screen {
-    Login, Register, Home, Profile, CreatePost, TrackRun, Chat, Community,
-    AdminAnnouncements, AdminReports, AdminLogs, AdminProfile, Notifications,
-    PostDetail,
-    ChatInbox,ChatRoom,
-    CreateGroup, GroupDetail,
-    CreateThread, ThreadDetail
+    Login,
+    Register,
+
+    Home,
+    Profile,
+    CreatePost,
+    TrackRun,
+
+    ChatInbox,
+    ChatRoom,
+
+    Community,
+    CreateGroup,
+    GroupDetail,
+
+    CreateGroupThread,
+    GroupThreadDetail,
+
+    AdminAnnouncements,
+    AdminReports,
+    AdminLogs,
+    AdminProfile,
+
+    Notifications,
+    PostDetail
 }
 
 data class NavItem(
@@ -42,7 +61,7 @@ data class Comment(
     val displayName: String = "",
     val text: String = "",
     val timestamp: Timestamp? = null,
-    val parentId: String? = null // For replies
+    val parentId: String? = null
 )
 
 data class ReportItem(
@@ -78,6 +97,24 @@ data class ChatThread(
 data class ChatMessage(
     val id: String = "",
     val senderId: String = "",
+    val text: String = "",
+    val createdAt: Timestamp? = null
+)
+
+data class GroupThread(
+    val id: String = "",
+    val title: String = "",
+    val body: String = "",
+    val createdById: String = "",
+    val createdByName: String = "Unknown",
+    val createdAt: Timestamp? = null,
+    val commentsCount: Int = 0
+)
+
+data class GroupThreadComment(
+    val id: String = "",
+    val userId: String = "",
+    val displayName: String = "User",
     val text: String = "",
     val createdAt: Timestamp? = null
 )
