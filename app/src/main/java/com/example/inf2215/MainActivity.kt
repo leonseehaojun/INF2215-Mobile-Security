@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
@@ -63,7 +64,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Bottom nav: use ChatInbox as the tab
+                // Bottom nav
                 val userNavItems = listOf(
                     NavItem(Screen.Home, "Home", Icons.Default.Home),
                     NavItem(Screen.ChatInbox, "Chat", Icons.Default.Chat),
@@ -103,7 +104,16 @@ class MainActivity : ComponentActivity() {
                                     )
 
                                     if (needsBack) {
-                                        IconButton(onClick = { screen = previousScreen }) {
+                                        IconButton(onClick = {
+                                            // Handle back navigation for nested screens
+                                            when (screen) {
+                                                Screen.GroupDetail -> screen = Screen.Community
+                                                Screen.CreateGroup -> screen = Screen.Community
+                                                Screen.GroupThreadDetail -> screen = Screen.GroupDetail
+                                                Screen.CreateGroupThread -> screen = Screen.GroupDetail
+                                                else -> screen = previousScreen
+                                            }
+                                        }) {
                                             Icon(
                                                 Icons.AutoMirrored.Filled.ArrowBack,
                                                 contentDescription = "Back"
@@ -223,12 +233,10 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     bottomBar = {
-                        // Hide bottom bar on CreatePost + detail screens
                         val hideBottomBar = screen in listOf(
                             Screen.CreatePost,
                             Screen.PostDetail,
                             Screen.ChatRoom,
-                            Screen.GroupDetail,
                             Screen.CreateGroup,
                             Screen.CreateGroupThread,
                             Screen.GroupThreadDetail
@@ -276,6 +284,12 @@ class MainActivity : ComponentActivity() {
                                     previousScreen = Screen.Home
                                     selectedPostId = postId
                                     screen = Screen.PostDetail
+                                },
+                                onNavigateToThread = { groupId, threadId ->
+                                    selectedGroupId = groupId
+                                    selectedThreadId = threadId
+                                    previousScreen = Screen.Home
+                                    screen = Screen.GroupThreadDetail
                                 }
                             )
 
@@ -329,7 +343,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            // Community = Groups only
                             Screen.Community -> CommunityScreen(
                                 onCreateGroup = {
                                     previousScreen = Screen.Community
@@ -444,7 +457,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Post Dialog
                     if (showPostTypeDialog) {
                         AlertDialog(
                             onDismissRequest = { showPostTypeDialog = false },

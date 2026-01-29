@@ -7,12 +7,21 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.net.Uri
 import android.os.Looper
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,9 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.google.android.gms.location.*
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMapOptions
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -35,6 +46,9 @@ import com.google.firebase.storage.FirebaseStorage
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.delay
 import java.util.UUID
+
+// Data class for group selection dialog
+data class GroupSelection(val id: String, val name: String)
 
 // Upload Image Function
 fun uploadImageToStorage(uri: Uri, onSuccess: (String) -> Unit, onError: () -> Unit) {
@@ -61,10 +75,6 @@ fun CreatePostScreen(
     var text by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var isPosting by remember { mutableStateOf(false) }
-
-    // Public vs Friend tab
-    val visibilityOptions = listOf("PUBLIC", "FRIENDS")
-    var visibility by remember { mutableStateOf("PUBLIC") }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -94,24 +104,6 @@ fun CreatePostScreen(
             label = { Text("What's on your mind?") },
             modifier = Modifier.fillMaxWidth().weight(1f)
         )
-
-        Spacer(Modifier.height(8.dp))
-
-        // NEW: Visibility Segmented Buttons
-        Text("Who can see this?", style = MaterialTheme.typography.labelLarge)
-        Spacer(Modifier.height(6.dp))
-
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            visibilityOptions.forEachIndexed { index, opt ->
-                SegmentedButton(
-                    selected = (visibility == opt),
-                    onClick = { visibility = opt },
-                    shape = SegmentedButtonDefaults.itemShape(index, visibilityOptions.size)
-                ) {
-                    Text(opt)
-                }
-            }
-        }
 
         // Image Preview
         if (selectedImageUri != null) {
@@ -167,7 +159,7 @@ fun CreatePostScreen(
                                 "text" to text,
                                 "imageUrl" to imageUrl,
                                 "type" to "NORMAL",
-                                "visibility" to visibility,
+                                "visibility" to "PUBLIC",
                                 "createdAt" to Timestamp.now()
                             )
 
@@ -207,12 +199,70 @@ fun TrackRunScreen(
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
+    val db = remember { FirebaseFirestore.getInstance() }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val user = auth.currentUser
 
     // Run Logic States
     var isRunning by remember { mutableStateOf(false) }
     var isFinished by remember { mutableStateOf(false) }
     var seconds by remember { mutableStateOf(0L) }
     var distanceKm by remember { mutableStateOf(0.0) }
+
+    // Group Selection States
+    val myGroups = remember { mutableStateListOf<GroupSelection>() }
+    var selectedGroupIds by remember { mutableStateOf(setOf<String>()) }
+    var showGroupDialog by remember { mutableStateOf(false) }
+
+    // Fetch Groups Real-time
+    DisposableEffect(user) {
+        if (user != null) {
+            val listener = db.collectionGroup("members")
+                .whereEqualTo("userId", user.uid)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null) {
+                        Log.e("TrackRunScreen", "Error fetching groups", e)
+                        return@addSnapshotListener
+                    }
+
+                    val currentIds = snapshot?.documents?.mapNotNull {
+                        it.reference.parent.parent?.id
+                    }?.toSet() ?: emptySet()
+
+                    myGroups.removeAll { it.id !in currentIds }
+
+                    currentIds.forEach { gid ->
+                        if (myGroups.none { it.id == gid }) {
+                            db.collection("groups").document(gid).get()
+                                .addOnSuccessListener { gDoc ->
+                                    if (gDoc.exists()) {
+                                        val name = gDoc.getString("name") ?: "Group"
+                                        if (myGroups.none { it.id == gid }) {
+                                            myGroups.add(GroupSelection(gid, name))
+                                        }
+                                    }
+                                }
+                        }
+                    }
+                }
+            onDispose { listener.remove() }
+        } else {
+            onDispose { }
+        }
+    }
+
+    // Pace State
+    val currentPace = remember(distanceKm, seconds) {
+        if (distanceKm > 0.05) {
+            val minutes = seconds / 60.0
+            val paceVal = minutes / distanceKm
+            val paceMin = paceVal.toInt()
+            val paceSec = ((paceVal - paceMin) * 60).toInt()
+            String.format("%d'%02d\" /km", paceMin, paceSec)
+        } else {
+            "-'--\" /km"
+        }
+    }
 
     // Map & Location State
     var hasLocationPermission by remember {
@@ -239,7 +289,7 @@ fun TrackRunScreen(
     var runDescription by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
 
-    // Ask for Location Permission on Start
+    // Permission Check
     LaunchedEffect(Unit) {
         if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
@@ -277,7 +327,7 @@ fun TrackRunScreen(
         }
     }
 
-    // Real-time Location Tracking Logic
+    // Real-time Location Tracking
     DisposableEffect(isRunning) {
         if (isRunning && hasLocationPermission) {
             val client = LocationServices.getFusedLocationProviderClient(context)
@@ -301,36 +351,27 @@ fun TrackRunScreen(
                                 newLatLng.latitude, newLatLng.longitude,
                                 results
                             )
-                            // results[0] is distance in meters
-                            val distanceInMeters = results[0]
 
                             // Filter out tiny GPS jumps (e.g. less than 1 meter movement)
-                            if (distanceInMeters > 1.0) {
-                                distanceKm += (distanceInMeters / 1000.0)
+                            if (results[0] > 1.0) {
+                                distanceKm += (results[0] / 1000.0)
                                 pathPoints = pathPoints + newLatLng
-                                currentLocation = newLatLng
                                 cameraPositionState.position = CameraPosition.fromLatLngZoom(newLatLng, 18f)
                             }
                         } else {
                             // First point
                             pathPoints = listOf(newLatLng)
-                            currentLocation = newLatLng
                             cameraPositionState.position = CameraPosition.fromLatLngZoom(newLatLng, 18f)
                         }
                     }
                 }
             }
-
             try {
                 @SuppressLint("MissingPermission")
                 client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
 
-            onDispose {
-                client.removeLocationUpdates(callback)
-            }
+            onDispose { client.removeLocationUpdates(callback) }
         } else {
             onDispose { }
         }
@@ -338,7 +379,7 @@ fun TrackRunScreen(
 
     Column(modifier = modifier.fillMaxSize()) {
         if (!isFinished) {
-            // VIEW 1: ACTIVE RUNNER
+            // VIEW 1: ACTIVE RUN
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (isLocationLoaded || !hasLocationPermission) {
                     GoogleMap(
@@ -352,8 +393,6 @@ fun TrackRunScreen(
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
-                        Spacer(Modifier.height(8.dp))
-                        Text("Acquiring GPS...", modifier = Modifier.padding(top = 40.dp))
                     }
                 }
 
@@ -371,17 +410,18 @@ fun TrackRunScreen(
                             Text(String.format("%.2f km", distanceKm), style = MaterialTheme.typography.titleLarge)
                             Text("Distance", style = MaterialTheme.typography.labelSmall)
                         }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(currentPace, style = MaterialTheme.typography.titleLarge)
+                            Text("Pace", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }
 
-            // Controls Surface
+            // Controls
             Surface(shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (!hasLocationPermission) {
-                        Text("Enable location to track run", color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }) { Text("Grant Permission") }
-                    } else if (!isRunning && seconds == 0L) {
+                    if (!isRunning && seconds == 0L) {
                         // Initial State
                         Button(
                             onClick = { isRunning = true },
@@ -402,31 +442,47 @@ fun TrackRunScreen(
                 }
             }
         } else {
-            // VIEW 2: REVIEW & SAVE
+            // VIEW 2: REVIEW SCREEN
             Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text("Run Summary", style = MaterialTheme.typography.headlineMedium)
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                        Text(formatTime(seconds), style = MaterialTheme.typography.titleLarge)
-                        Text(String.format("%.2f km", distanceKm), style = MaterialTheme.typography.titleLarge)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(formatTime(seconds), style = MaterialTheme.typography.titleMedium)
+                            Text("Time", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(String.format("%.2f km", distanceKm), style = MaterialTheme.typography.titleMedium)
+                            Text("Distance", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(currentPace, style = MaterialTheme.typography.titleMedium)
+                            Text("Avg Pace", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
 
                 // Show Static Map Preview in Review
                 if (pathPoints.isNotEmpty()) {
                     Box(modifier = Modifier.height(200.dp).fillMaxWidth().padding(vertical = 8.dp)) {
+                        val cameraState = rememberCameraPositionState()
+                        LaunchedEffect(pathPoints) {
+                            val boundsBuilder = LatLngBounds.builder()
+                            pathPoints.forEach { boundsBuilder.include(it) }
+                            val bounds = boundsBuilder.build()
+                            cameraState.move(CameraUpdateFactory.newLatLngBounds(bounds, 50))
+                        }
                         GoogleMap(
                             modifier = Modifier.fillMaxSize(),
-                            cameraPositionState = rememberCameraPositionState {
-                                position = CameraPosition.fromLatLngZoom(pathPoints.last(), 15f)
-                            },
-                            googleMapOptionsFactory = {
-                                GoogleMapOptions().liteMode(true)
-                            },
+                            cameraPositionState = cameraState,
+                            googleMapOptionsFactory = { GoogleMapOptions().liteMode(true) },
                             uiSettings = MapUiSettings(zoomControlsEnabled = false)
                         ) {
                             Polyline(points = pathPoints, color = Color.Red, width = 10f)
@@ -450,21 +506,48 @@ fun TrackRunScreen(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3
                 )
+
+                if (myGroups.isNotEmpty()) {
+                    OutlinedCard(
+                        onClick = { showGroupDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                if (selectedGroupIds.isEmpty()) "Share to Groups (Optional)"
+                                else "Sharing to ${selectedGroupIds.size} group(s)"
+                            )
+                            Icon(Icons.Default.ArrowDropDown, null)
+                        }
+                    }
+                }
+
                 Spacer(Modifier.weight(1f))
+
                 if (isSaving) {
                     CircularProgressIndicator()
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // Discard run and go home
-                        OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Discard") }
-
-                        // Save Button
+                        OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Discard") }
                         Button(
                             modifier = Modifier.weight(1f),
-                            enabled = runTitle.isNotBlank(),    // Force user to add a title
+                            enabled = runTitle.isNotBlank(),
                             onClick = {
                                 isSaving = true
-                                saveRunToFirestore(seconds, distanceKm, runTitle, runDescription, pathPoints, onSuccess = onRunFinished)
+                                saveRunToFirestore(
+                                    seconds = seconds,
+                                    distanceKm = distanceKm,
+                                    pace = currentPace,
+                                    title = runTitle,
+                                    description = runDescription,
+                                    pathPoints = pathPoints,
+                                    shareToGroupIds = selectedGroupIds.toList(),
+                                    onSuccess = onRunFinished
+                                )
                             }
                         ) { Text("Save") }
                     }
@@ -472,15 +555,54 @@ fun TrackRunScreen(
             }
         }
     }
+
+    if (showGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showGroupDialog = false },
+            title = { Text("Select Groups") },
+            text = {
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(myGroups) { group ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (selectedGroupIds.contains(group.id)) {
+                                        selectedGroupIds = selectedGroupIds - group.id
+                                    } else {
+                                        selectedGroupIds = selectedGroupIds + group.id
+                                    }
+                                }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Icon(
+                                if (selectedGroupIds.contains(group.id)) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(group.name)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGroupDialog = false }) { Text("Done") }
+            }
+        )
+    }
 }
 
-// Helper Function to save to Firestore
+// Save Function with Group Logic
 fun saveRunToFirestore(
     seconds: Long,
     distanceKm: Double,
+    pace: String,
     title: String,
     description: String,
     pathPoints: List<LatLng>,
+    shareToGroupIds: List<String> = emptyList(),
     onSuccess: () -> Unit
 ) {
     val db = FirebaseFirestore.getInstance()
@@ -488,11 +610,7 @@ fun saveRunToFirestore(
     val user = auth.currentUser ?: return
 
     val durationMin = seconds / 60.0
-
-    // Convert List<LatLng> to List<Map> for Firestore
-    val routeData = pathPoints.map {
-        hashMapOf("lat" to it.latitude, "lng" to it.longitude)
-    }
+    val routeData = pathPoints.map { hashMapOf("lat" to it.latitude, "lng" to it.longitude) }
 
     // Save raw run data
     val runData = hashMapOf(
@@ -506,6 +624,7 @@ fun saveRunToFirestore(
     db.collection("runs").add(runData).addOnSuccessListener { runRef ->
         db.collection("users").document(user.uid).get().addOnSuccessListener { userDoc ->
             val displayName = userDoc.getString("displayName") ?: "Runner"
+            val now = Timestamp.now()
 
             // Create the Post
             val postData = hashMapOf(
@@ -518,11 +637,38 @@ fun saveRunToFirestore(
                 "runId" to runRef.id,
                 "runDistance" to String.format("%.2f km", distanceKm),
                 "runDuration" to formatTime(seconds),
+                "runPace" to pace,
                 "route" to routeData,
-                "createdAt" to Timestamp.now()
+                "createdAt" to now
             )
 
-            db.collection("posts").add(postData).addOnSuccessListener { onSuccess() }
+            db.collection("posts").add(postData).addOnSuccessListener {
+                if (shareToGroupIds.isNotEmpty()) {
+                    val batch = db.batch()
+                    shareToGroupIds.forEach { gid ->
+                        val threadRef = db.collection("groups").document(gid).collection("threads").document()
+                        val threadData = hashMapOf(
+                            "title" to title,
+                            "body" to description.ifBlank { "Shared a run" },
+                            "createdById" to user.uid,
+                            "createdByName" to displayName,
+                            "createdAt" to now,
+                            "lastActivityAt" to now,
+                            "commentsCount" to 0,
+                            "type" to "RUN",
+                            "runId" to runRef.id,
+                            "runDistance" to String.format("%.2f km", distanceKm),
+                            "runDuration" to formatTime(seconds),
+                            "runPace" to pace,
+                            "route" to routeData
+                        )
+                        batch.set(threadRef, threadData)
+                    }
+                    batch.commit().addOnSuccessListener { onSuccess() }
+                } else {
+                    onSuccess()
+                }
+            }
         }
     }
 }

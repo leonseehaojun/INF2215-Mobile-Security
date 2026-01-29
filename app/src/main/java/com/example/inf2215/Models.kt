@@ -45,13 +45,16 @@ data class FeedPost(
     val title: String = "",
     val text: String = "",
     val imageUrl: String? = null,
-    val type: String = "NORMAL",
+    val type: String = "NORMAL", // "NORMAL", "RUN", "THREAD"
     val runDistance: String? = null,
     val runDuration: String? = null,
+    val runPace: String? = null,
     val route: List<LatLng> = emptyList(),
     val createdAt: Timestamp? = null,
     val likes: List<String> = emptyList(),
-    val commentsCount: Int = 0
+    val commentsCount: Int = 0,
+    val groupId: String? = null,
+    val runId: String? = null
 )
 
 data class Comment(
@@ -108,7 +111,13 @@ data class GroupThread(
     val createdById: String = "",
     val createdByName: String = "Unknown",
     val createdAt: Timestamp? = null,
-    val commentsCount: Int = 0
+    val commentsCount: Int = 0,
+
+    val type: String = "NORMAL", // "NORMAL" or "RUN"
+    val runDistance: String? = null,
+    val runDuration: String? = null,
+    val runPace: String? = null,
+    val route: List<LatLng> = emptyList()
 )
 
 data class GroupThreadComment(
