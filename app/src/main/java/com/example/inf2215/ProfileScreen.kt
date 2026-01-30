@@ -306,6 +306,9 @@ private fun FriendsTabContent(
 ) {
     val db = remember { FirebaseFirestore.getInstance() }
 
+    var confirmRemoveUser by remember { mutableStateOf<SimpleUser?>(null) }
+    var removing by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
 
         if (statusText.isNotBlank()) {
@@ -378,18 +381,24 @@ private fun FriendsTabContent(
                             Text(f.displayName, fontWeight = FontWeight.Medium)
                         }
 
-                        Button(
-                            onClick = {
-                                if (uid == null) return@Button
-                                createOrOpenChat(
-                                    db = db,
-                                    myUid = uid,
-                                    otherUid = f.uid
-                                ) {
-                                    onStartChat(f.uid, f.displayName)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    if (uid == null) return@Button
+                                    createOrOpenChat(
+                                        db = db,
+                                        myUid = uid,
+                                        otherUid = f.uid
+                                    ) {
+                                        onStartChat(f.uid, f.displayName)
+                                    }
                                 }
-                            }
-                        ) { Text("Chat") }
+                            ) { Text("Chat") }
+
+                            OutlinedButton(
+                                onClick = { confirmRemoveUser = f }
+                            ) { Text("Remove") }
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -437,7 +446,47 @@ private fun FriendsTabContent(
             }
         }
     }
+
+    confirmRemoveUser?.let { target ->
+        AlertDialog(
+            onDismissRequest = { if (!removing) confirmRemoveUser = null },
+            title = { Text("Remove friend?") },
+            text = { Text("You and ${target.displayName} will be removed from each other’s friend list.") },
+            confirmButton = {
+                Button(
+                    enabled = !removing,
+                    onClick = {
+                        if (uid == null) return@Button
+                        removing = true
+                        removeFriend(
+                            db = db,
+                            myUid = uid,
+                            otherUid = target.uid,
+                            onDone = {
+                                removing = false
+                                confirmRemoveUser = null
+                            },
+                            onError = { e ->
+                                removing = false
+                                Log.e(TAG, "Failed to remove friend", e)
+                                // keep dialog open so user can retry/cancel
+                            }
+                        )
+                    }
+                ) {
+                    Text(if (removing) "Removing..." else "Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !removing,
+                    onClick = { confirmRemoveUser = null }
+                ) { Text("Cancel") }
+            }
+        )
+    }
 }
+
 
 private fun sendFriendRequest(
     db: FirebaseFirestore,
@@ -491,6 +540,33 @@ private fun acceptFriendRequest(db: FirebaseFirestore, myUid: String, fromUid: S
         }
     }
 }
+private fun removeFriend(
+    db: FirebaseFirestore,
+    myUid: String,
+    otherUid: String,
+    onDone: () -> Unit = {},
+    onError: (Exception) -> Unit = {}
+) {
+    val myRef = db.collection("users").document(myUid)
+    val otherRef = db.collection("users").document(otherUid)
+
+    db.runBatch { batch ->
+        // delete each other from friends
+        batch.delete(myRef.collection("friends").document(otherUid))
+        batch.delete(otherRef.collection("friends").document(myUid))
+
+        // optional cleanup: remove any pending requests both ways
+        batch.delete(myRef.collection("friend_requests_in").document(otherUid))
+        batch.delete(myRef.collection("friend_requests_out").document(otherUid))
+        batch.delete(otherRef.collection("friend_requests_in").document(myUid))
+        batch.delete(otherRef.collection("friend_requests_out").document(myUid))
+    }.addOnSuccessListener {
+        onDone()
+    }.addOnFailureListener { e ->
+        onError(e)
+    }
+}
+
 
 private fun declineFriendRequest(db: FirebaseFirestore, myUid: String, fromUid: String) {
     val myRef = db.collection("users").document(myUid)
