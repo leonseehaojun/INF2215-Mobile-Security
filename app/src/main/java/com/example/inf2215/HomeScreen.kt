@@ -158,7 +158,7 @@ fun HomeScreen(
             }
         }
 
-        items(feedItems) { post ->
+        items(feedItems, key = { it.id }) { post ->
             PostCard(
                 post = post,
                 onClick = {
@@ -264,7 +264,10 @@ fun PostContent(
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     val currentUserId = auth.currentUser?.uid ?: ""
-    val isLiked = post.likes.contains(currentUserId)
+
+    // Initialise with the data from the DB
+    var localIsLiked by remember(post) { mutableStateOf(post.likes.contains(currentUserId)) }
+    var localLikeCount by remember(post) { mutableIntStateOf(post.likes.size) }
 
     // Logic to determine if should show map/stats
     val hasRunData = post.route.isNotEmpty() || post.runDistance != null
@@ -442,24 +445,34 @@ fun PostContent(
                 TextButton(
                     onClick = {
                         if (currentUserId.isNotEmpty()) {
+                            // Update UI Instantly
+                            val wasLiked = localIsLiked
+                            localIsLiked = !wasLiked
+                            localLikeCount = if (wasLiked) localLikeCount - 1 else localLikeCount + 1
+
+                            // Update DB in Background
                             val ref = db.collection("posts").document(post.id)
-                            if (isLiked) {
+                            if (wasLiked) {
+                                // If it was liked, remove it
                                 ref.update("likes", FieldValue.arrayRemove(currentUserId))
                             } else {
+                                // If it wasnt liked, add it
                                 ref.update("likes", FieldValue.arrayUnion(currentUserId))
                             }
                         }
                     }
                 ) {
                     Icon(
-                        imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                        // Use localIsLiked instead of calculating from post.likes
+                        imageVector = if (localIsLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                         contentDescription = "Like",
-                        tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (localIsLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = post.likes.size.toString(),
-                        color = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        // Use localLikeCount
+                        text = localLikeCount.toString(),
+                        color = if (localIsLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Spacer(Modifier.width(16.dp))

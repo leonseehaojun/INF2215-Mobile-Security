@@ -309,18 +309,25 @@ private fun FriendsTabContent(
     var confirmRemoveUser by remember { mutableStateOf<SimpleUser?>(null) }
     var removing by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp)
+    ) {
 
         if (statusText.isNotBlank()) {
-            Text(statusText, color = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.height(8.dp))
+            item {
+                Text(statusText, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(8.dp))
+            }
         }
 
         if (incomingRequests.isNotEmpty()) {
-            Text("Friend Requests", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
+            item {
+                Text("Friend Requests", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+            }
 
-            incomingRequests.forEach { req ->
+            items(incomingRequests) { req ->
                 Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(2.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -349,16 +356,18 @@ private fun FriendsTabContent(
                 Spacer(Modifier.height(8.dp))
             }
 
-            Spacer(Modifier.height(16.dp))
+            item { Spacer(Modifier.height(16.dp)) }
         }
 
-        Text("My Friends (${friends.size})", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+        item {
+            Text("My Friends (${friends.size})", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+        }
 
         if (friends.isEmpty()) {
-            Text("No friends yet.", color = MaterialTheme.colorScheme.secondary)
+            item { Text("No friends yet.", color = MaterialTheme.colorScheme.secondary) }
         } else {
-            friends.forEach { f ->
+            items(friends) { f ->
                 Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -405,15 +414,17 @@ private fun FriendsTabContent(
             }
         }
 
-        Spacer(Modifier.height(18.dp))
+        item { Spacer(Modifier.height(18.dp)) }
 
-        Text("Suggested Friends", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+        item {
+            Text("Suggested Friends", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+        }
 
         if (suggested.isEmpty()) {
-            Text("No suggestions right now.", color = MaterialTheme.colorScheme.secondary)
+            item { Text("No suggestions right now.", color = MaterialTheme.colorScheme.secondary) }
         } else {
-            suggested.forEach { s ->
+            items(suggested) { s ->
                 val isSent = s.uid in pendingOutIds
 
                 Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
@@ -616,7 +627,6 @@ private fun createOrOpenChat(
     }
 }
 
-/** Existing UI helpers **/
 @Composable
 fun StatColumn(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {

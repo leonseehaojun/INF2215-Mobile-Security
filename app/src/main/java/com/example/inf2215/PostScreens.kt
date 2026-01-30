@@ -2,11 +2,9 @@ package com.example.inf2215
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.location.Location
 import android.net.Uri
-import android.os.Looper
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -33,7 +31,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
-import com.google.android.gms.location.*
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMapOptions
 import com.google.android.gms.maps.model.CameraPosition
@@ -44,7 +43,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.maps.android.compose.*
-import kotlinx.coroutines.delay
 import java.util.UUID
 
 // Data class for group selection dialog
@@ -204,10 +202,13 @@ fun TrackRunScreen(
     val user = auth.currentUser
 
     // Run Logic States
-    var isRunning by remember { mutableStateOf(false) }
+    val isRunning by RunningService.isServiceRunning
+    val seconds by RunningService.seconds
+    val distanceKm by RunningService.distanceKm
+    val pathPoints by RunningService.pathPoints
+
+    // Local UI state
     var isFinished by remember { mutableStateOf(false) }
-    var seconds by remember { mutableStateOf(0L) }
-    var distanceKm by remember { mutableStateOf(0.0) }
 
     // Group Selection States
     val myGroups = remember { mutableStateListOf<GroupSelection>() }
@@ -229,8 +230,10 @@ fun TrackRunScreen(
                         it.reference.parent.parent?.id
                     }?.toSet() ?: emptySet()
 
+                    // Remove groups we are no longer in
                     myGroups.removeAll { it.id !in currentIds }
 
+                    // Fetch names for new groups
                     currentIds.forEach { gid ->
                         if (myGroups.none { it.id == gid }) {
                             db.collection("groups").document(gid).get()
@@ -251,7 +254,7 @@ fun TrackRunScreen(
         }
     }
 
-    // Pace State
+    // Pace Calculation
     val currentPace = remember(distanceKm, seconds) {
         if (distanceKm > 0.05) {
             val minutes = seconds / 60.0
@@ -264,20 +267,26 @@ fun TrackRunScreen(
         }
     }
 
-    // Map & Location State
+    // Map & Permission State
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         )
     }
 
-    // Default start location (will be overwritten by GPS)
-    var currentLocation by remember { mutableStateOf(LatLng(1.3521, 103.8198)) }
-    var pathPoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
-    var isLocationLoaded by remember { mutableStateOf(false) }
-
+    // Initial camera position (will update when pathPoints change)
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(currentLocation, 17f)
+        position = CameraPosition.fromLatLngZoom(LatLng(1.3521, 103.8198), 15f)
+    }
+
+    // Update Camera to follow user
+    LaunchedEffect(pathPoints) {
+        if (pathPoints.isNotEmpty()) {
+            cameraPositionState.animate(
+                CameraUpdateFactory.newLatLngZoom(pathPoints.last(), 17f),
+                1000
+            )
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -291,12 +300,14 @@ fun TrackRunScreen(
 
     // Permission Check
     LaunchedEffect(Unit) {
-        if (!hasLocationPermission) permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (!hasLocationPermission) {
+            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
     }
 
-    // Fetch Initial Location
+    // Fetch Initial Location for the map if empty
     LaunchedEffect(hasLocationPermission) {
-        if (hasLocationPermission) {
+        if (hasLocationPermission && pathPoints.isEmpty()) {
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
             try {
                 @SuppressLint("MissingPermission")
@@ -304,76 +315,10 @@ fun TrackRunScreen(
                 task.addOnSuccessListener { location ->
                     if (location != null) {
                         val latLng = LatLng(location.latitude, location.longitude)
-                        currentLocation = latLng
-                        if (pathPoints.isEmpty()) {
-                            pathPoints = listOf(latLng)
-                            cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 18f)
-                        }
-                        isLocationLoaded = true
+                        cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 16f)
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
-
-    // Timer Logic
-    LaunchedEffect(isRunning) {
-        if (isRunning) {
-            val startTime = System.currentTimeMillis() - (seconds * 1000)
-            while (isRunning) {
-                seconds = (System.currentTimeMillis() - startTime) / 1000
-                delay(1000)
-            }
-        }
-    }
-
-    // Real-time Location Tracking
-    DisposableEffect(isRunning) {
-        if (isRunning && hasLocationPermission) {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-
-            // Configure Request: High Accuracy, Update every 3 meters or 2 seconds
-            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
-                .setMinUpdateDistanceMeters(3f)
-                .build()
-
-            val callback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) {
-                    for (location in result.locations) {
-                        val newLatLng = LatLng(location.latitude, location.longitude)
-
-                        // Calculate Distance from last point
-                        if (pathPoints.isNotEmpty()) {
-                            val lastPoint = pathPoints.last()
-                            val results = FloatArray(1)
-                            Location.distanceBetween(
-                                lastPoint.latitude, lastPoint.longitude,
-                                newLatLng.latitude, newLatLng.longitude,
-                                results
-                            )
-
-                            // Filter out tiny GPS jumps (e.g. less than 1 meter movement)
-                            if (results[0] > 1.0) {
-                                distanceKm += (results[0] / 1000.0)
-                                pathPoints = pathPoints + newLatLng
-                                cameraPositionState.position = CameraPosition.fromLatLngZoom(newLatLng, 18f)
-                            }
-                        } else {
-                            // First point
-                            pathPoints = listOf(newLatLng)
-                            cameraPositionState.position = CameraPosition.fromLatLngZoom(newLatLng, 18f)
-                        }
-                    }
-                }
-            }
-            try {
-                @SuppressLint("MissingPermission")
-                client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-            } catch (e: Exception) { e.printStackTrace() }
-
-            onDispose { client.removeLocationUpdates(callback) }
-        } else {
-            onDispose { }
         }
     }
 
@@ -381,25 +326,20 @@ fun TrackRunScreen(
         if (!isFinished) {
             // VIEW 1: ACTIVE RUN
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (isLocationLoaded || !hasLocationPermission) {
-                    GoogleMap(
-                        modifier = Modifier.fillMaxSize(),
-                        cameraPositionState = cameraPositionState,
-                        properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-                        uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = true)
-                    ) {
-                        Polyline(points = pathPoints, color = Color.Red, width = 12f)
-                    }
-                } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
+                GoogleMap(
+                    modifier = Modifier.fillMaxSize(),
+                    cameraPositionState = cameraPositionState,
+                    properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
+                    uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = true)
+                ) {
+                    // Draw the running path
+                    Polyline(points = pathPoints, color = Color.Red, width = 12f)
                 }
 
                 // Stats Card
                 Card(
                     modifier = Modifier.align(Alignment.TopCenter).padding(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
                 ) {
                     Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -419,24 +359,62 @@ fun TrackRunScreen(
             }
 
             // Controls
-            Surface(shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
+            Surface(shadowElevation = 16.dp, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (!isRunning && seconds == 0L) {
                         // Initial State
                         Button(
-                            onClick = { isRunning = true },
-                            enabled = isLocationLoaded,
+                            onClick = {
+                                // Start Service
+                                Intent(context, RunningService::class.java).also {
+                                    it.action = RunningService.ACTION_START
+                                    context.startService(it)
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth().height(50.dp)
-                        ) { Text(if (isLocationLoaded) "START RUN" else "WAITING FOR GPS...") }
+                        ) { Text("START RUN") }
+
                         TextButton(onClick = onCancel) { Text("Cancel") }
+
                     } else if (isRunning) {
                         // Running State
-                        Button(onClick = { isRunning = false }, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error), modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("PAUSE") }
+                        Button(
+                            onClick = {
+                                // Pause Service
+                                Intent(context, RunningService::class.java).also {
+                                    it.action = RunningService.ACTION_PAUSE
+                                    context.startService(it)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) { Text("PAUSE") }
+
                     } else {
                         // Paused State
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            OutlinedButton(onClick = { isRunning = true }, modifier = Modifier.weight(1f)) { Text("Resume") }
-                            Button(onClick = { isFinished = true }, modifier = Modifier.weight(1f)) { Text("Finish") }
+                            OutlinedButton(
+                                onClick = {
+                                    // Resume Service
+                                    Intent(context, RunningService::class.java).also {
+                                        it.action = RunningService.ACTION_START
+                                        context.startService(it)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Resume") }
+
+                            Button(
+                                onClick = {
+                                    // Stop Service and go to review
+                                    Intent(context, RunningService::class.java).also {
+                                        it.action = RunningService.ACTION_STOP
+                                        context.startService(it)
+                                    }
+                                    isFinished = true
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Finish") }
                         }
                     }
                 }
@@ -477,7 +455,11 @@ fun TrackRunScreen(
                             val boundsBuilder = LatLngBounds.builder()
                             pathPoints.forEach { boundsBuilder.include(it) }
                             val bounds = boundsBuilder.build()
-                            cameraState.move(CameraUpdateFactory.newLatLngBounds(bounds, 50))
+                            try {
+                                cameraState.move(CameraUpdateFactory.newLatLngBounds(bounds, 50))
+                            } catch (e: Exception) {
+                                cameraState.move(CameraUpdateFactory.newLatLngZoom(pathPoints.last(), 15f))
+                            }
                         }
                         GoogleMap(
                             modifier = Modifier.fillMaxSize(),
@@ -532,7 +514,15 @@ fun TrackRunScreen(
                     CircularProgressIndicator()
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Discard") }
+                        OutlinedButton(
+                            onClick = {
+                                // If they cancel after finishing, we might want to clear service data?
+                                // For now, simple cancel
+                                onCancel()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Discard") }
+
                         Button(
                             modifier = Modifier.weight(1f),
                             enabled = runTitle.isNotBlank(),
@@ -546,7 +536,10 @@ fun TrackRunScreen(
                                     description = runDescription,
                                     pathPoints = pathPoints,
                                     shareToGroupIds = selectedGroupIds.toList(),
-                                    onSuccess = onRunFinished
+                                    onSuccess = {
+                                        isSaving = false
+                                        onRunFinished()
+                                    }
                                 )
                             }
                         ) { Text("Save") }
