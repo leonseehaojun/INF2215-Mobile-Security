@@ -39,28 +39,38 @@ class MainActivity : ComponentActivity() {
 
                 var selectedPostId by remember { mutableStateOf<String?>(null) }
                 var selectedGroupId by remember { mutableStateOf<String?>(null) }
-
                 var selectedThreadId by remember { mutableStateOf<String?>(null) }
+                var selectedAnnouncementId by remember { mutableStateOf<String?>(null) }
 
                 // For 1-to-1 chat
                 var chatOtherUid by remember { mutableStateOf<String?>(null) }
                 var chatOtherName by remember { mutableStateOf<String?>(null) }
 
-                // Placeholder for unread notifications state
-                var hasNewNotifications by remember { mutableStateOf(true) }
+                // Unread notifications state
+                var hasUnreadAnnouncements by remember { mutableStateOf(false) }
 
                 val auth = FirebaseAuth.getInstance()
                 val db = FirebaseFirestore.getInstance()
 
-                // Fetch user role when logged in
+                // Fetch user role and check for unread announcements
                 LaunchedEffect(auth.currentUser) {
                     val uid = auth.currentUser?.uid
                     if (uid != null) {
                         db.collection("users").document(uid).get().addOnSuccessListener { doc ->
                             userRole = doc.getString("role") ?: "public"
                         }
+
+                        // Listen for unread announcements
+                        db.collection("announcements").addSnapshotListener { snapshot, _ ->
+                            val announcements = snapshot?.documents ?: emptyList()
+                            hasUnreadAnnouncements = announcements.any { doc ->
+                                val readBy = doc.get("readBy") as? List<String> ?: emptyList()
+                                !readBy.contains(uid)
+                            }
+                        }
                     } else {
                         userRole = "public"
+                        hasUnreadAnnouncements = false
                     }
                 }
 
@@ -82,7 +92,7 @@ class MainActivity : ComponentActivity() {
 
                 val isAdminMode = screen in listOf(
                     Screen.AdminAnnouncements, Screen.AdminReports,
-                    Screen.AdminLogs, Screen.AdminProfile
+                    Screen.AdminLogs, Screen.AdminProfile, Screen.AdminCreateAnnouncement
                 )
 
                 val showBars = screen !in listOf(Screen.Login, Screen.Register)
@@ -93,20 +103,22 @@ class MainActivity : ComponentActivity() {
                         if (showBars) {
                             CenterAlignedTopAppBar(
                                 navigationIcon = {
-                                    // Back icon for detail-type screens
                                     val needsBack = screen in listOf(
                                         Screen.PostDetail,
                                         Screen.GroupDetail,
                                         Screen.CreateGroupThread,
                                         Screen.GroupThreadDetail,
                                         Screen.ChatRoom,
-                                        Screen.CreateGroup
+                                        Screen.CreateGroup,
+                                        Screen.AdminCreateAnnouncement,
+                                        Screen.AnnouncementDetail
                                     )
 
                                     if (needsBack) {
                                         IconButton(onClick = {
-                                            // Handle back navigation for nested screens
                                             when (screen) {
+                                                Screen.AdminCreateAnnouncement -> screen = Screen.AdminAnnouncements
+                                                Screen.AnnouncementDetail -> screen = previousScreen
                                                 Screen.GroupDetail -> screen = Screen.Community
                                                 Screen.CreateGroup -> screen = Screen.Community
                                                 Screen.GroupThreadDetail -> screen = Screen.GroupDetail
@@ -150,22 +162,19 @@ class MainActivity : ComponentActivity() {
                                             Screen.Profile, Screen.AdminProfile -> "Profile"
                                             Screen.TrackRun -> "Record Run"
                                             Screen.CreatePost -> "New Post"
-
                                             Screen.ChatInbox -> "Chats"
                                             Screen.ChatRoom -> (chatOtherName ?: "Chat")
-
                                             Screen.Community -> "Community"
                                             Screen.CreateGroup -> "Create Group"
                                             Screen.GroupDetail -> "Group"
-
                                             Screen.CreateGroupThread -> "Create Thread"
                                             Screen.GroupThreadDetail -> "Thread"
-
                                             Screen.AdminAnnouncements -> "Admin Announcements"
+                                            Screen.AdminCreateAnnouncement -> if (selectedAnnouncementId == null) "New Announcement" else "Edit Announcement"
                                             Screen.AdminReports -> "Admin Reports"
                                             Screen.AdminLogs -> "Admin Logs"
-
                                             Screen.Notifications -> "Alerts"
+                                            Screen.AnnouncementDetail -> "Announcement"
                                             Screen.PostDetail -> "Post Details"
                                             else -> ""
                                         }
@@ -184,7 +193,6 @@ class MainActivity : ComponentActivity() {
                                                 } else {
                                                     previousScreen = screen
                                                     screen = Screen.Notifications
-                                                    hasNewNotifications = false
                                                 }
                                             },
                                             shape = RoundedCornerShape(12.dp),
@@ -198,7 +206,7 @@ class MainActivity : ComponentActivity() {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 BadgedBox(
                                                     badge = {
-                                                        if (hasNewNotifications) {
+                                                        if (hasUnreadAnnouncements) {
                                                             Badge(
                                                                 modifier = Modifier
                                                                     .size(6.dp)
@@ -239,7 +247,9 @@ class MainActivity : ComponentActivity() {
                             Screen.ChatRoom,
                             Screen.CreateGroup,
                             Screen.CreateGroupThread,
-                            Screen.GroupThreadDetail
+                            Screen.GroupThreadDetail,
+                            Screen.AdminCreateAnnouncement,
+                            Screen.AnnouncementDetail
                         )
 
                         if (showBars && !hideBottomBar) {
@@ -316,7 +326,25 @@ class MainActivity : ComponentActivity() {
                                 onCancel = { screen = Screen.Home }
                             )
 
-                            Screen.Notifications -> NotificationScreen()
+                            Screen.Notifications -> NotificationScreen(
+                                onAnnouncementClick = { announcementId ->
+                                    selectedAnnouncementId = announcementId
+                                    previousScreen = Screen.Notifications
+                                    screen = Screen.AnnouncementDetail
+                                }
+                            )
+
+                            Screen.AnnouncementDetail -> {
+                                selectedAnnouncementId?.let { id ->
+                                    AnnouncementDetailScreen(
+                                        announcementId = id,
+                                        onBack = { screen = previousScreen },
+                                        onEdit = if (previousScreen == Screen.AdminAnnouncements) {
+                                            { screen = Screen.AdminCreateAnnouncement }
+                                        } else null
+                                    )
+                                }
+                            }
 
                             Screen.ChatInbox -> ChatInboxScreen(
                                 onOpenChat = { otherUid, otherName ->
@@ -370,13 +398,11 @@ class MainActivity : ComponentActivity() {
                                     GroupDetailScreen(
                                         groupId = gid,
                                         onBack = { screen = Screen.Community },
-
                                         onCreateThread = { groupIdFromScreen ->
                                             selectedGroupId = groupIdFromScreen
                                             previousScreen = Screen.GroupDetail
                                             screen = Screen.CreateGroupThread
                                         },
-
                                         onOpenThread = { groupIdFromScreen, threadIdFromScreen ->
                                             selectedGroupId = groupIdFromScreen
                                             selectedThreadId = threadIdFromScreen
@@ -426,11 +452,22 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            Screen.AdminAnnouncements -> {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("Admin Announcements Content")
+                            Screen.AdminAnnouncements -> AdminAnnouncementsScreen(
+                                onNavigateToCreate = { 
+                                    selectedAnnouncementId = null
+                                    screen = Screen.AdminCreateAnnouncement 
+                                },
+                                onAnnouncementClick = { id ->
+                                    selectedAnnouncementId = id
+                                    previousScreen = Screen.AdminAnnouncements
+                                    screen = Screen.AnnouncementDetail
                                 }
-                            }
+                            )
+
+                            Screen.AdminCreateAnnouncement -> CreateAnnouncementScreen(
+                                onBack = { screen = Screen.AdminAnnouncements },
+                                announcementId = selectedAnnouncementId
+                            )
 
                             Screen.AdminReports -> AdminReportsScreen()
 

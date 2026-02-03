@@ -1,5 +1,8 @@
 package com.example.inf2215
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
@@ -24,11 +27,13 @@ enum class Screen {
     GroupThreadDetail,
 
     AdminAnnouncements,
+    AdminCreateAnnouncement,
     AdminReports,
     AdminLogs,
     AdminProfile,
 
     Notifications,
+    AnnouncementDetail,
     PostDetail
 }
 
@@ -127,3 +132,27 @@ data class GroupThreadComment(
     val text: String = "",
     val createdAt: Timestamp? = null
 )
+
+enum class AnnouncementType {
+    News, SystemNotice, ServiceAlert
+}
+
+data class Announcement(
+    val id: String = "",
+    val title: String = "",
+    val type: String = "News", // AnnouncementType
+    val description: String = "",
+    val isIndefinite: Boolean = false,
+    val startDate: Timestamp? = null,
+    val endDate: Timestamp? = null,
+    val createdAt: Timestamp? = null,
+    val createdBy: String = "",
+    val readBy: List<String> = emptyList()
+)
+
+fun getCategoryStyle(type: String) = when (type) {
+    "News" -> Icons.Default.Circle to Color(0xFF4CAF50)
+    "System Notice" -> Icons.Default.Circle to Color(0xFFFFC107)
+    "Service Alert" -> Icons.Default.PriorityHigh to Color(0xFFF44336)
+    else -> Icons.Default.Info to Color.Gray
+}
