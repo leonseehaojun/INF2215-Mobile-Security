@@ -3,9 +3,12 @@ package com.example.inf2215
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
@@ -46,6 +49,7 @@ fun GroupThreadDetailScreen(
     var body by remember { mutableStateOf("") }
     var createdByName by remember { mutableStateOf("") }
     var commentsCount by remember { mutableStateOf(0) }
+    var createdAt by remember { mutableStateOf<Timestamp?>(null) } // To show date in header
 
     var type by remember { mutableStateOf("NORMAL") }
     var runDistance by remember { mutableStateOf<String?>(null) }
@@ -95,6 +99,7 @@ fun GroupThreadDetailScreen(
             body = doc.getString("body") ?: ""
             createdByName = doc.getString("createdByName") ?: "Unknown"
             commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt()
+            createdAt = doc.getTimestamp("createdAt")
 
             // Parse Run Data
             type = doc.getString("type") ?: "NORMAL"
@@ -149,31 +154,24 @@ fun GroupThreadDetailScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "Discussion",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "$commentsCount ${if (commentsCount == 1) "reply" else "replies"}",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                Column {
+                    Text(
+                        text = "Discussion",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "$commentsCount ${if (commentsCount == 1) "reply" else "replies"}",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
 
         if (status.isNotBlank()) {
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = RoundedCornerShape(12.dp)
             ) {
@@ -200,63 +198,77 @@ fun GroupThreadDetailScreen(
                     elevation = CardDefaults.cardElevation(2.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
-                        Text(
-                            text = title,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = 28.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // User Chip
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(20.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Person,
                                         contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        modifier = Modifier.padding(8.dp),
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
+                                }
+                                Column {
                                     Text(
                                         text = createdByName,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    val dateStr = createdAt?.toDate()?.let {
+                                        SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(it)
+                                    } ?: "Just now"
+                                    Text(
+                                        text = dateStr,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
 
+                            // Run Badge on the far right
                             if (type == "RUN") {
                                 Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(20.dp)
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text(
                                         text = "RUN",
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
                                     )
                                 }
                             }
                         }
 
-                        //  Run Map and Stats
-                        if (type == "RUN" && route.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
+                        // Title
+                        Text(
+                            text = title,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 26.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Run Map and Stats
+                        if (type == "RUN" && route.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -306,17 +318,18 @@ fun GroupThreadDetailScreen(
                                     Text(runPace ?: "-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
                             Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
 
+                        // Body Text
                         if (body.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = body,
                                 fontSize = 15.sp,
-                                lineHeight = 22.sp
+                                lineHeight = 22.sp,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -337,34 +350,29 @@ fun GroupThreadDetailScreen(
 
             // Comments
             items(comments) { comment ->
-                CommentCard(comment = comment, isCurrentUser = comment.userId == me)
+                CommentCard(
+                    comment = comment,
+                    isCurrentUser = comment.userId == me,
+                    onDelete = {
+                        threadRef.collection("comments").document(comment.id).delete()
+                            .addOnSuccessListener {
+                                threadRef.update("commentsCount", FieldValue.increment(-1))
+                            }
+                    }
+                )
             }
 
             // Empty State
             if (comments.isEmpty()) {
                 item {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 32.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "No replies yet",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "Be the first to reply!",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = "No replies yet. Be the first!",
+                            color = MaterialTheme.colorScheme.secondary
+                        )
                     }
                 }
             }
@@ -376,9 +384,7 @@ fun GroupThreadDetailScreen(
             tonalElevation = 3.dp
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -391,7 +397,7 @@ fun GroupThreadDetailScreen(
                     },
                     shape = RoundedCornerShape(24.dp),
                     maxLines = 4,
-                    enabled = isMember // Disable if not member
+                    enabled = isMember  // Disable if not member
                 )
 
                 FilledIconButton(
@@ -437,7 +443,10 @@ fun GroupThreadDetailScreen(
 }
 
 @Composable
-fun CommentCard(comment: GroupThreadComment, isCurrentUser: Boolean) {
+fun CommentCard(comment: GroupThreadComment, isCurrentUser: Boolean, onDelete: () -> Unit) {
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isCurrentUser) Arrangement.End else Arrangement.Start
@@ -464,55 +473,62 @@ fun CommentCard(comment: GroupThreadComment, isCurrentUser: Boolean) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Surface(
-                            color = if (isCurrentUser)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier.size(24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = if (isCurrentUser)
-                                        MaterialTheme.colorScheme.onPrimary
-                                    else
-                                        MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier.size(14.dp)
-                                )
+                    Text(
+                        text = comment.displayName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCurrentUser)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val date = comment.createdAt?.toDate()?.let {
+                            SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(it)
+                        } ?: ""
+                        if (date.isNotBlank()) {
+                            Text(
+                                text = date,
+                                fontSize = 12.sp,
+                                color = if (isCurrentUser)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (isCurrentUser) {
+                            Box {
+                                IconButton(
+                                    onClick = { showMenu = true },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isCurrentUser)
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            showMenu = false
+                                            showDeleteDialog = true
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                    )
+                                }
                             }
                         }
-                        Text(
-                            text = comment.displayName,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isCurrentUser)
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            else
-                                MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    val date = comment.createdAt?.toDate()?.let {
-                        SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(it)
-                    } ?: ""
-                    if (date.isNotBlank()) {
-                        Text(
-                            text = date,
-                            fontSize = 12.sp,
-                            color = if (isCurrentUser)
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
 
@@ -529,5 +545,24 @@ fun CommentCard(comment: GroupThreadComment, isCurrentUser: Boolean) {
                 )
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Reply?") },
+            text = { Text("Are you sure you want to delete this reply?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteDialog = false
+                    }
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }

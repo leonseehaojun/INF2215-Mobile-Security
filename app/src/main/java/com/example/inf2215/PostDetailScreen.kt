@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Report
@@ -37,6 +38,7 @@ fun PostDetailScreen(
 ) {
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
+    val currentUserId = auth.currentUser?.uid
     var post by remember { mutableStateOf<FeedPost?>(null) }
     var comments by remember { mutableStateOf(listOf<Comment>()) }
     var newCommentText by remember { mutableStateOf("") }
@@ -69,6 +71,9 @@ fun PostDetailScreen(
                         likes = doc.get("likes") as? List<String> ?: emptyList(),
                         commentsCount = doc.getLong("commentsCount")?.toInt() ?: 0
                     )
+                } else {
+                    // Go back if post is deleted while viewing
+                    onBack()
                 }
             }
         }
@@ -90,7 +95,7 @@ fun PostDetailScreen(
     val organizedComments = remember(comments) {
         val topLevel = comments.filter { it.parentId == null }.sortedBy { it.timestamp }
         val replies = comments.filter { it.parentId != null }.sortedBy { it.timestamp }
-        
+
         val result = mutableListOf<Pair<Comment, Int>>()
         topLevel.forEach { parent ->
             result.add(parent to 0)
@@ -115,7 +120,14 @@ fun PostDetailScreen(
                 item {
                     PostContent(
                         post = post!!,
-                        onCommentClick = { /* Already in Detail */ }
+                        onCommentClick = { /* Already in Detail */ },
+                        onDelete = {
+                            // Delete the post and navigate back
+                            db.collection("posts").document(post!!.id).delete()
+                                .addOnSuccessListener {
+                                    onBack()
+                                }
+                        }
                     )
                 }
 
@@ -132,7 +144,35 @@ fun PostDetailScreen(
                     CommentItem(
                         comment = comment,
                         indentation = indentation,
-                        onReplyClick = { replyingTo = it }
+                        currentUserId = currentUserId,
+                        onReplyClick = { replyingTo = it },
+                        onDeleteClick = {
+                            // Delete Logic
+                            // Find all children (replies) of comment
+                            db.collection("comments")
+                                .whereEqualTo("parentId", comment.id)
+                                .get()
+                                .addOnSuccessListener { childrenSnapshot ->
+                                    val batch = db.batch()
+
+                                    // Queue delete for the Parent (Self)
+                                    batch.delete(db.collection("comments").document(comment.id))
+
+                                    // Queue delete for all Children
+                                    childrenSnapshot.documents.forEach { childDoc ->
+                                        batch.delete(childDoc.reference)
+                                    }
+
+                                    // Commit the batch
+                                    batch.commit().addOnSuccessListener {
+                                        // Update the post's comment count
+                                        // Count = 1 (Parent) + N (Children)
+                                        val totalDeleted = 1 + childrenSnapshot.size()
+                                        db.collection("posts").document(postId)
+                                            .update("commentsCount", FieldValue.increment(-totalDeleted.toLong()))
+                                    }
+                                }
+                        }
                     )
                 }
             }
@@ -161,7 +201,7 @@ fun PostDetailScreen(
                         }
                     }
                 }
-                
+
                 Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
                     Row(
                         modifier = Modifier
@@ -185,11 +225,10 @@ fun PostDetailScreen(
                                     val user = auth.currentUser ?: return@IconButton
                                     db.collection("users").document(user.uid).get().addOnSuccessListener { userDoc ->
                                         val displayName = userDoc.getString("displayName") ?: "Anonymous"
-                                        
-                                        // Maximum indentation logic:
+
                                         // If replying to a reply, use the same parentId to keep indentation at 1.
                                         val actualParentId = replyingTo?.let { it.parentId ?: it.id }
-                                        
+
                                         val commentData = hashMapOf(
                                             "postId" to postId,
                                             "userId" to user.uid,
@@ -226,10 +265,13 @@ fun PostDetailScreen(
 fun CommentItem(
     comment: Comment,
     indentation: Int,
-    onReplyClick: (Comment) -> Unit
+    currentUserId: String?,
+    onReplyClick: (Comment) -> Unit,
+    onDeleteClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -272,7 +314,7 @@ fun CommentItem(
                     SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(it)
                 } ?: ""
                 Text(text = dateStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                
+
                 Box {
                     IconButton(
                         onClick = { showMenu = true },
@@ -296,6 +338,18 @@ fun CommentItem(
                             },
                             leadingIcon = { Icon(Icons.Default.Report, contentDescription = null) }
                         )
+
+                        // Delete Option
+                        if (currentUserId == comment.userId) {
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = {
+                                    showMenu = false
+                                    showDeleteDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                            )
+                        }
                     }
                 }
             }
@@ -304,7 +358,7 @@ fun CommentItem(
                 style = MaterialTheme.typography.bodyMedium,
                 fontSize = if (indentation > 0) 13.sp else 14.sp
             )
-            
+
             TextButton(
                 onClick = { onReplyClick(comment) },
                 contentPadding = PaddingValues(0.dp),
@@ -321,6 +375,25 @@ fun CommentItem(
             targetType = 2, // 2 for Comment
             attachedId = comment.id,
             onDismiss = { showReportDialog = false }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Comment?") },
+            text = { Text("This will delete the comment and any replies to it.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteClick()
+                        showDeleteDialog = false
+                    }
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
         )
     }
 }
