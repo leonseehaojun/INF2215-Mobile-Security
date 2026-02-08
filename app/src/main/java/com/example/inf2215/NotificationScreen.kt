@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -40,8 +42,21 @@ fun NotificationScreen(
         db.collection("announcements")
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, _ ->
+                val now = Timestamp.now()
                 announcements = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(Announcement::class.java)?.copy(id = doc.id)
+                    val ann = doc.toObject(Announcement::class.java)?.copy(id = doc.id)
+                    if (ann != null) {
+                        // Filter based on date range
+                        val isWithinDateRange = if (ann.isIndefinite) {
+                            true
+                        } else {
+                            val start = ann.startDate
+                            val end = ann.endDate
+                            (start == null || start <= now) && (end == null || end >= now)
+                        }
+                        
+                        if (isWithinDateRange) ann else null
+                    } else null
                 } ?: emptyList()
                 isLoading = false
             }
@@ -127,7 +142,7 @@ fun NotificationAnnouncementCard(
                     Text(
                         text = announcement.title,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isRead) FontWeight.Normal else FontWeight.Bold,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -159,7 +174,8 @@ fun NotificationAnnouncementCard(
                 Text(
                     dateStr,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.align(Alignment.End)
                 )
             }
         }
@@ -175,10 +191,15 @@ fun AnnouncementDetailScreen(
     val db = remember { FirebaseFirestore.getInstance() }
     var announcement by remember { mutableStateOf<Announcement?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(announcementId) {
-        db.collection("announcements").document(announcementId).get().addOnSuccessListener { doc ->
-            announcement = doc.toObject(Announcement::class.java)?.copy(id = doc.id)
+        db.collection("announcements").document(announcementId).addSnapshotListener { snapshot, _ ->
+            if (snapshot != null && snapshot.exists()) {
+                announcement = snapshot.toObject(Announcement::class.java)?.copy(id = snapshot.id)
+            } else {
+                announcement = null
+            }
             isLoading = false
         }
     }
@@ -189,7 +210,11 @@ fun AnnouncementDetailScreen(
         }
     } else if (announcement == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Announcement not found.")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Announcement not found.")
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = onBack) { Text("Go Back") }
+            }
         }
     } else {
         val ann = announcement!!
@@ -198,48 +223,93 @@ fun AnnouncementDetailScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(24.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(color.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
-                }
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text(ann.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    val dateStr = ann.createdAt?.toDate()?.let {
-                        SimpleDateFormat("MMMM dd, yyyy 'at' HH:mm", Locale.getDefault()).format(it)
-                    } ?: ""
-                    Text(dateStr, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
-                }
+            IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(color.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(ann.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        val dateStr = ann.createdAt?.toDate()?.let {
+                            SimpleDateFormat("MMMM dd, yyyy 'at' HH:mm", Locale.getDefault()).format(it)
+                        } ?: ""
+                        Text(dateStr, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                    }
+                }
 
-            HorizontalDivider()
+                HorizontalDivider()
 
-            Text(
-                text = ann.description,
-                style = MaterialTheme.typography.bodyLarge,
-                lineHeight = 24.sp
-            )
+                Text(
+                    text = ann.description,
+                    style = MaterialTheme.typography.bodyLarge,
+                    lineHeight = 24.sp
+                )
 
-            if (onEdit != null) {
-                Spacer(modifier = Modifier.weight(1f))
-                Button(
-                    onClick = onEdit,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Edit, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Edit Announcement")
+                if (onEdit != null) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = onEdit,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Edit Announcement")
+                    }
+                    
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Delete Announcement")
+                    }
                 }
             }
         }
+    }
+    
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Announcement?") },
+            text = { Text("This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        db.collection("announcements").document(announcementId).delete()
+                            .addOnSuccessListener {
+                                showDeleteConfirm = false
+                                onBack()
+                            }
+                    }
+                ) {
+                    Text("Yes, Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

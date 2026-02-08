@@ -41,6 +41,11 @@ class MainActivity : ComponentActivity() {
                 var selectedGroupId by remember { mutableStateOf<String?>(null) }
                 var selectedThreadId by remember { mutableStateOf<String?>(null) }
                 var selectedAnnouncementId by remember { mutableStateOf<String?>(null) }
+                
+                // Admin Review States
+                var selectedReportItem by remember { mutableStateOf<ReportItem?>(null) }
+                var selectedCommentId by remember { mutableStateOf<String?>(null) }
+                var isAdminReviewMode by remember { mutableStateOf(false) }
 
                 // For 1-to-1 chat
                 var chatOtherUid by remember { mutableStateOf<String?>(null) }
@@ -93,14 +98,19 @@ class MainActivity : ComponentActivity() {
                 val isAdminMode = screen in listOf(
                     Screen.AdminAnnouncements, Screen.AdminReports,
                     Screen.AdminLogs, Screen.AdminProfile, Screen.AdminCreateAnnouncement
-                )
+                ) || (isAdminReviewMode && screen == Screen.PostDetail)
 
                 val showBars = screen !in listOf(Screen.Login, Screen.Register)
+                
+                // New logic to hide Bars for specific detail views
+                val isViewingAdminReportDetail = screen == Screen.AdminReports && selectedReportItem != null
+                val isViewingAnnouncementDetail = screen == Screen.AnnouncementDetail
+                val hideBarsInternally = isViewingAdminReportDetail || isViewingAnnouncementDetail
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     topBar = {
-                        if (showBars) {
+                        if (showBars && !hideBarsInternally) {
                             CenterAlignedTopAppBar(
                                 navigationIcon = {
                                     val needsBack = screen in listOf(
@@ -110,19 +120,26 @@ class MainActivity : ComponentActivity() {
                                         Screen.GroupThreadDetail,
                                         Screen.ChatRoom,
                                         Screen.CreateGroup,
-                                        Screen.AdminCreateAnnouncement,
-                                        Screen.AnnouncementDetail
+                                        Screen.AdminCreateAnnouncement
+                                        // AnnouncementDetail is now hideBarsInternally
                                     )
 
                                     if (needsBack) {
                                         IconButton(onClick = {
                                             when (screen) {
                                                 Screen.AdminCreateAnnouncement -> screen = Screen.AdminAnnouncements
-                                                Screen.AnnouncementDetail -> screen = previousScreen
                                                 Screen.GroupDetail -> screen = Screen.Community
                                                 Screen.CreateGroup -> screen = Screen.Community
                                                 Screen.GroupThreadDetail -> screen = Screen.GroupDetail
                                                 Screen.CreateGroupThread -> screen = Screen.GroupDetail
+                                                Screen.PostDetail -> {
+                                                    if (isAdminReviewMode) {
+                                                        screen = Screen.AdminReports
+                                                        isAdminReviewMode = false
+                                                    } else {
+                                                        screen = previousScreen
+                                                    }
+                                                }
                                                 else -> screen = previousScreen
                                             }
                                         }) {
@@ -134,7 +151,11 @@ class MainActivity : ComponentActivity() {
                                     } else if (userRole == "admin") {
                                         TextButton(
                                             onClick = {
-                                                if (isAdminMode) screen = Screen.Home
+                                                if (isAdminMode) {
+                                                    screen = Screen.Home
+                                                    isAdminReviewMode = false
+                                                    selectedReportItem = null
+                                                }
                                                 else screen = Screen.AdminAnnouncements
                                             },
                                             shape = RoundedCornerShape(12.dp),
@@ -173,9 +194,8 @@ class MainActivity : ComponentActivity() {
                                             Screen.AdminCreateAnnouncement -> if (selectedAnnouncementId == null) "New Announcement" else "Edit Announcement"
                                             Screen.AdminReports -> "Admin Reports"
                                             Screen.AdminLogs -> "Admin Logs"
-                                            Screen.Notifications -> "Alerts"
-                                            Screen.AnnouncementDetail -> "Announcement"
-                                            Screen.PostDetail -> "Post Details"
+                                            Screen.Notifications -> "Notifications"
+                                            Screen.PostDetail -> if (isAdminReviewMode) "Review Content" else "Post Details"
                                             else -> ""
                                         }
                                     )
@@ -241,18 +261,17 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     bottomBar = {
-                        val hideBottomBar = screen in listOf(
+                        val hideBottomBarOnly = screen in listOf(
                             Screen.CreatePost,
                             Screen.PostDetail,
                             Screen.ChatRoom,
                             Screen.CreateGroup,
                             Screen.CreateGroupThread,
                             Screen.GroupThreadDetail,
-                            Screen.AdminCreateAnnouncement,
-                            Screen.AnnouncementDetail
+                            Screen.AdminCreateAnnouncement
                         )
 
-                        if (showBars && !hideBottomBar) {
+                        if (showBars && !hideBottomBarOnly && !hideBarsInternally) {
                             val currentNavItems = if (isAdminMode) adminNavItems else userNavItems
                             NavigationBar {
                                 currentNavItems.forEach { item ->
@@ -263,6 +282,10 @@ class MainActivity : ComponentActivity() {
                                                 showPostTypeDialog = true
                                             } else {
                                                 screen = item.screen
+                                                if (isAdminMode) {
+                                                    selectedReportItem = null
+                                                    isAdminReviewMode = false
+                                                }
                                             }
                                         },
                                         label = { Text(item.label) },
@@ -273,7 +296,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    Box(modifier = Modifier.padding(innerPadding)) {
+                    Box(modifier = Modifier.padding(if (hideBarsInternally) PaddingValues(0.dp) else innerPadding)) {
                         when (screen) {
                             Screen.Login -> LoginScreen(
                                 onLoginSuccess = { screen = Screen.Home },
@@ -339,7 +362,7 @@ class MainActivity : ComponentActivity() {
                                     AnnouncementDetailScreen(
                                         announcementId = id,
                                         onBack = { screen = previousScreen },
-                                        onEdit = if (previousScreen == Screen.AdminAnnouncements) {
+                                        onEdit = if (userRole == "admin") {
                                             { screen = Screen.AdminCreateAnnouncement }
                                         } else null
                                     )
@@ -469,7 +492,23 @@ class MainActivity : ComponentActivity() {
                                 announcementId = selectedAnnouncementId
                             )
 
-                            Screen.AdminReports -> AdminReportsScreen()
+                            Screen.AdminReports -> AdminReportsScreen(
+                                selectedReport = selectedReportItem,
+                                onReportSelected = { selectedReportItem = it },
+                                onReviewPost = { postId, reportId ->
+                                    selectedPostId = postId
+                                    isAdminReviewMode = true
+                                    previousScreen = Screen.AdminReports
+                                    screen = Screen.PostDetail
+                                },
+                                onReviewComment = { postId, commentId, reportId ->
+                                    selectedPostId = postId
+                                    selectedCommentId = commentId
+                                    isAdminReviewMode = true
+                                    previousScreen = Screen.AdminReports
+                                    screen = Screen.PostDetail
+                                }
+                            )
 
                             Screen.AdminLogs -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -481,7 +520,17 @@ class MainActivity : ComponentActivity() {
                                 selectedPostId?.let { postId ->
                                     PostDetailScreen(
                                         postId = postId,
-                                        onBack = { screen = previousScreen }
+                                        onBack = { 
+                                            if (isAdminReviewMode) {
+                                                screen = Screen.AdminReports
+                                                isAdminReviewMode = false
+                                            } else {
+                                                screen = previousScreen
+                                            }
+                                        },
+                                        highlightCommentId = selectedCommentId,
+                                        isAdminReview = isAdminReviewMode,
+                                        reportId = selectedReportItem?.id
                                     )
                                 }
                             }

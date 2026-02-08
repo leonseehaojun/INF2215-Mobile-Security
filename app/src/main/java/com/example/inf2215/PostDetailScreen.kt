@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.maps.model.LatLng
@@ -34,7 +35,10 @@ import java.util.Locale
 @Composable
 fun PostDetailScreen(
     postId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    highlightCommentId: String? = null,
+    isAdminReview: Boolean = false,
+    reportId: String? = null
 ) {
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
@@ -43,6 +47,8 @@ fun PostDetailScreen(
     var comments by remember { mutableStateOf(listOf<Comment>()) }
     var newCommentText by remember { mutableStateOf("") }
     var replyingTo by remember { mutableStateOf<Comment?>(null) }
+    
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     // Fetch Post and Comments
     LaunchedEffect(postId) {
@@ -71,8 +77,8 @@ fun PostDetailScreen(
                         likes = doc.get("likes") as? List<String> ?: emptyList(),
                         commentsCount = doc.getLong("commentsCount")?.toInt() ?: 0
                     )
-                } else {
-                    // Go back if post is deleted while viewing
+                } else if (!isAdminReview) {
+                    // Go back if post is deleted while viewing (unless admin is reviewing)
                     onBack()
                 }
             }
@@ -108,7 +114,23 @@ fun PostDetailScreen(
 
     if (post == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            if (isAdminReview) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("This content may have already been deleted.", color = Color.Gray)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onBack) { Text("Go Back") }
+                    if (reportId != null) {
+                        TextButton(onClick = {
+                            db.collection("reports").document(reportId).delete()
+                                .addOnSuccessListener { onBack() }
+                        }) {
+                            Text("Remove Report", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            } else {
+                CircularProgressIndicator()
+            }
         }
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -125,6 +147,9 @@ fun PostDetailScreen(
                             // Delete the post and navigate back
                             db.collection("posts").document(post!!.id).delete()
                                 .addOnSuccessListener {
+                                    if (isAdminReview && reportId != null) {
+                                        db.collection("reports").document(reportId).delete()
+                                    }
                                     onBack()
                                 }
                         }
@@ -145,31 +170,28 @@ fun PostDetailScreen(
                         comment = comment,
                         indentation = indentation,
                         currentUserId = currentUserId,
+                        isHighlighted = comment.id == highlightCommentId,
                         onReplyClick = { replyingTo = it },
                         onDeleteClick = {
                             // Delete Logic
-                            // Find all children (replies) of comment
                             db.collection("comments")
                                 .whereEqualTo("parentId", comment.id)
                                 .get()
                                 .addOnSuccessListener { childrenSnapshot ->
                                     val batch = db.batch()
-
-                                    // Queue delete for the Parent (Self)
                                     batch.delete(db.collection("comments").document(comment.id))
-
-                                    // Queue delete for all Children
                                     childrenSnapshot.documents.forEach { childDoc ->
                                         batch.delete(childDoc.reference)
                                     }
-
-                                    // Commit the batch
                                     batch.commit().addOnSuccessListener {
-                                        // Update the post's comment count
-                                        // Count = 1 (Parent) + N (Children)
                                         val totalDeleted = 1 + childrenSnapshot.size()
                                         db.collection("posts").document(postId)
                                             .update("commentsCount", FieldValue.increment(-totalDeleted.toLong()))
+                                        
+                                        if (isAdminReview && reportId != null && comment.id == highlightCommentId) {
+                                            db.collection("reports").document(reportId).delete()
+                                            onBack()
+                                        }
                                     }
                                 }
                         }
@@ -177,87 +199,156 @@ fun PostDetailScreen(
                 }
             }
 
-            // Comment Input Bar with Reply Context
-            Column {
-                if (replyingTo != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+            if (isAdminReview) {
+                Surface(
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text(
-                            text = "Replying to ${replyingTo!!.displayName}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        IconButton(
-                            onClick = { replyingTo = null },
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel", modifier = Modifier.size(16.dp))
-                        }
+                        Text("Delete Content")
                     }
                 }
+            } else {
+                // Comment Input Bar with Reply Context
+                Column {
+                    if (replyingTo != null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Replying to ${replyingTo!!.displayName}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(
+                                onClick = { replyingTo = null },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
 
-                Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
-                    Row(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .fillMaxWidth()
-                            .imePadding(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = newCommentText,
-                            onValueChange = { newCommentText = it },
-                            placeholder = { Text(if (replyingTo != null) "Write a reply..." else "Write a comment...") },
-                            modifier = Modifier.weight(1f),
-                            maxLines = 3,
-                            shape = MaterialTheme.shapes.medium
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(
-                            onClick = {
-                                if (newCommentText.isNotBlank()) {
-                                    val user = auth.currentUser ?: return@IconButton
-                                    db.collection("users").document(user.uid).get().addOnSuccessListener { userDoc ->
-                                        val displayName = userDoc.getString("displayName") ?: "Anonymous"
+                    Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
+                        Row(
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .fillMaxWidth()
+                                .imePadding(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newCommentText,
+                                onValueChange = { newCommentText = it },
+                                placeholder = { Text(if (replyingTo != null) "Write a reply..." else "Write a comment...") },
+                                modifier = Modifier.weight(1f),
+                                maxLines = 3,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(
+                                onClick = {
+                                    if (newCommentText.isNotBlank()) {
+                                        val user = auth.currentUser ?: return@IconButton
+                                        db.collection("users").document(user.uid).get().addOnSuccessListener { userDoc ->
+                                            val displayName = userDoc.getString("displayName") ?: "Anonymous"
 
-                                        // If replying to a reply, use the same parentId to keep indentation at 1.
-                                        val actualParentId = replyingTo?.let { it.parentId ?: it.id }
+                                            // If replying to a reply, use the same parentId to keep indentation at 1.
+                                            val actualParentId = replyingTo?.let { it.parentId ?: it.id }
 
-                                        val commentData = hashMapOf(
-                                            "postId" to postId,
-                                            "userId" to user.uid,
-                                            "displayName" to displayName,
-                                            "text" to newCommentText,
-                                            "timestamp" to Timestamp.now(),
-                                            "parentId" to actualParentId
-                                        )
-                                        db.collection("comments").add(commentData).addOnSuccessListener {
-                                            db.collection("posts").document(postId)
-                                                .update("commentsCount", FieldValue.increment(1))
-                                            newCommentText = ""
-                                            replyingTo = null
+                                            val commentData = hashMapOf(
+                                                "postId" to postId,
+                                                "userId" to user.uid,
+                                                "displayName" to displayName,
+                                                "text" to newCommentText,
+                                                "timestamp" to Timestamp.now(),
+                                                "parentId" to actualParentId
+                                            )
+                                            db.collection("comments").add(commentData).addOnSuccessListener {
+                                                db.collection("posts").document(postId)
+                                                    .update("commentsCount", FieldValue.increment(1))
+                                                newCommentText = ""
+                                                replyingTo = null
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            enabled = newCommentText.isNotBlank()
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                tint = if (newCommentText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            )
+                                },
+                                enabled = newCommentText.isNotBlank()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send",
+                                    tint = if (newCommentText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+    
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Content?") },
+            text = { Text("This will permanently remove this content and its associated report.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        if (highlightCommentId != null) {
+                            // Delete the highlighted comment
+                            val commentToDelete = comments.find { it.id == highlightCommentId }
+                            if (commentToDelete != null) {
+                                db.collection("comments")
+                                    .whereEqualTo("parentId", commentToDelete.id)
+                                    .get()
+                                    .addOnSuccessListener { childrenSnapshot ->
+                                        val batch = db.batch()
+                                        batch.delete(db.collection("comments").document(commentToDelete.id))
+                                        childrenSnapshot.documents.forEach { childDoc ->
+                                            batch.delete(childDoc.reference)
+                                        }
+                                        batch.commit().addOnSuccessListener {
+                                            val totalDeleted = 1 + childrenSnapshot.size()
+                                            db.collection("posts").document(postId)
+                                                .update("commentsCount", FieldValue.increment(-totalDeleted.toLong()))
+                                            if (reportId != null) db.collection("reports").document(reportId).delete()
+                                            onBack()
+                                        }
+                                    }
+                            }
+                        } else {
+                            // Delete the post
+                            db.collection("posts").document(postId).delete()
+                                .addOnSuccessListener {
+                                    if (reportId != null) db.collection("reports").document(reportId).delete()
+                                    onBack()
+                                }
+                        }
+                    }
+                ) {
+                    Text("Yes, Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -267,7 +358,8 @@ fun CommentItem(
     indentation: Int,
     currentUserId: String?,
     onReplyClick: (Comment) -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    isHighlighted: Boolean = false
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
@@ -276,6 +368,7 @@ fun CommentItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(if (isHighlighted) Color.Red.copy(alpha = 0.15f) else Color.Transparent)
             .padding(
                 start = (16 + (indentation * 32)).dp,
                 end = 16.dp,
@@ -305,7 +398,7 @@ fun CommentItem(
                 Text(
                     text = comment.displayName,
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    fontWeight = FontWeight.Bold,
                     fontSize = if (indentation > 0) 13.sp else 14.sp,
                     modifier = Modifier.weight(1f)
                 )

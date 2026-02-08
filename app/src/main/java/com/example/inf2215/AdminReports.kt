@@ -30,13 +30,21 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Composable
-fun AdminReportsScreen() {
-    var selectedReport by remember { mutableStateOf<ReportItem?>(null) }
-
+fun AdminReportsScreen(
+    selectedReport: ReportItem?,
+    onReportSelected: (ReportItem?) -> Unit,
+    onReviewPost: (String, String) -> Unit, // postId, reportId
+    onReviewComment: (String, String, String) -> Unit // postId, commentId, reportId
+) {
     if (selectedReport == null) {
-        ReportList(onReportClick = { selectedReport = it })
+        ReportList(onReportClick = onReportSelected)
     } else {
-        ReportDetail(report = selectedReport!!, onBack = { selectedReport = null })
+        ReportDetail(
+            report = selectedReport, 
+            onBack = { onReportSelected(null) },
+            onReviewPost = onReviewPost,
+            onReviewComment = onReviewComment
+        )
     }
 }
 
@@ -305,8 +313,17 @@ fun ReportCard(report: ReportItem, onClick: () -> Unit) {
 }
 
 @Composable
-fun ReportDetail(report: ReportItem, onBack: () -> Unit) {
+fun ReportDetail(
+    report: ReportItem, 
+    onBack: () -> Unit, 
+    onReviewPost: (String, String) -> Unit,
+    onReviewComment: (String, String, String) -> Unit
+) {
     val scrollState = rememberScrollState()
+    val db = remember { FirebaseFirestore.getInstance() }
+    var isFetching by remember { mutableStateOf(false) }
+    var showDismissConfirm by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -346,13 +363,69 @@ fun ReportDetail(report: ReportItem, onBack: () -> Unit) {
         
         Spacer(Modifier.height(16.dp))
 
-        Button(
-            onClick = { /* TODO: Implement action like Delete Post */ },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-        ) {
-            Text("Take Action")
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { showDismissConfirm = true },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Dismiss Report")
+            }
+
+            if (report.targetType != 0) { // Only show for Post and Comment
+                Button(
+                    onClick = {
+                        if (report.targetType == 1) {
+                            onReviewPost(report.attachedId ?: "", report.id)
+                        } else if (report.targetType == 2) {
+                            isFetching = true
+                            db.collection("comments").document(report.attachedId ?: "").get()
+                                .addOnSuccessListener { doc ->
+                                    val postId = doc.getString("postId") ?: ""
+                                    onReviewComment(postId, report.attachedId ?: "", report.id)
+                                    isFetching = false
+                                }
+                                .addOnFailureListener { isFetching = false }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = !isFetching,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    if (isFetching) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Text("Review Report")
+                    }
+                }
+            }
         }
+    }
+
+    if (showDismissConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDismissConfirm = false },
+            title = { Text("Dismiss Report?") },
+            text = { Text("This will remove the report from the system without taking action on the content.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        db.collection("reports").document(report.id).delete()
+                            .addOnSuccessListener { 
+                                showDismissConfirm = false
+                                onBack() 
+                            }
+                    }
+                ) {
+                    Text("Yes, Dismiss", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDismissConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -364,3 +437,5 @@ fun DetailItem(label: String, value: String) {
         HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
     }
 }
+
+private fun Modifier.size(size: Int) = this.size(size.dp)
