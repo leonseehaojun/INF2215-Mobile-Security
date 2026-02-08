@@ -99,7 +99,8 @@ data class ChatThread(
     val otherUserId: String = "",
     val otherName: String = "Chat",
     val lastMessage: String = "",
-    val lastTimestamp: Timestamp? = null
+    val lastTimestamp: Timestamp? = null,
+    val unreadCount: Int = 0
 )
 
 data class ChatMessage(

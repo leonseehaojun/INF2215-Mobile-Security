@@ -11,8 +11,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 
 @Composable
 fun ChatScreen(
@@ -38,8 +40,11 @@ fun ChatScreen(
         chatId = if (myUid < otherUserId) "${myUid}_${otherUserId}" else "${otherUserId}_${myUid}"
         val cid = chatId!!
 
-        // Ensure chat doc exists (so inbox sorting works)
+        // Ensure chat doc exists and has all fields
         ensureChatDocExists(db, myUid, otherUserId)
+
+        // Clear unread count for me initially
+        db.collection("chats").document(cid).update("unreadCount_$myUid", 0)
 
         db.collection("chats").document(cid)
             .collection("messages")
@@ -59,6 +64,15 @@ fun ChatScreen(
                     )
                 } ?: emptyList()
             }
+    }
+
+    // Clear unread count when new messages arrive while viewing the chat
+    LaunchedEffect(messages) {
+        if (messages.isNotEmpty() && messages.last().senderId != myUid) {
+            chatId?.let { cid ->
+                db.collection("chats").document(cid).update("unreadCount_$myUid", 0)
+            }
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
@@ -135,23 +149,27 @@ private fun ensureChatDocExists(db: FirebaseFirestore, myUid: String, otherUid: 
     val chatRef = db.collection("chats").document(chatId)
 
     chatRef.get().addOnSuccessListener { doc ->
-        if (doc.exists()) return@addOnSuccessListener
+        // Only run initialization if doc doesn't exist OR it's an old doc missing new fields
+        val needsInit = !doc.exists() || !doc.contains("unreadCount_$myUid") || !doc.contains("otherName_$myUid")
+        
+        if (needsInit) {
+            db.collection("users").document(myUid).get().addOnSuccessListener { myDoc ->
+                val myName = myDoc.getString("displayName") ?: "Runner"
 
-        db.collection("users").document(myUid).get().addOnSuccessListener { myDoc ->
-            val myName = myDoc.getString("displayName") ?: "Runner"
+                db.collection("users").document(otherUid).get().addOnSuccessListener { otherDoc ->
+                    val otherName = otherDoc.getString("displayName") ?: "Runner"
 
-            db.collection("users").document(otherUid).get().addOnSuccessListener { otherDoc ->
-                val otherName = otherDoc.getString("displayName") ?: "Runner"
-
-                val data = hashMapOf(
-                    "participants" to listOf(myUid, otherUid),
-                    "createdAt" to Timestamp.now(),
-                    "lastMessage" to "",
-                    "lastTimestamp" to Timestamp.now(),
-                    "otherName_$myUid" to otherName,
-                    "otherName_$otherUid" to myName
-                )
-                chatRef.set(data)
+                    val data = hashMapOf(
+                        "participants" to listOf(myUid, otherUid),
+                        "lastMessage" to (doc.getString("lastMessage") ?: ""),
+                        "lastTimestamp" to (doc.getTimestamp("lastTimestamp") ?: Timestamp.now()),
+                        "otherName_$myUid" to otherName,
+                        "otherName_$otherUid" to myName,
+                        "unreadCount_$myUid" to (doc.getLong("unreadCount_$myUid") ?: 0L),
+                        "unreadCount_$otherUid" to (doc.getLong("unreadCount_$otherUid") ?: 0L)
+                    )
+                    chatRef.set(data, SetOptions.merge())
+                }
             }
         }
     }
@@ -178,7 +196,8 @@ private fun sendMessage(
         batch.set(msgRef, msgData)
         batch.update(chatRef, mapOf(
             "lastMessage" to text,
-            "lastTimestamp" to now
+            "lastTimestamp" to now,
+            "unreadCount_$otherUid" to FieldValue.increment(1)
         ))
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -41,7 +42,7 @@ class MainActivity : ComponentActivity() {
                 var selectedGroupId by remember { mutableStateOf<String?>(null) }
                 var selectedThreadId by remember { mutableStateOf<String?>(null) }
                 var selectedAnnouncementId by remember { mutableStateOf<String?>(null) }
-                
+
                 // Admin Review States
                 var selectedReportItem by remember { mutableStateOf<ReportItem?>(null) }
                 var selectedCommentId by remember { mutableStateOf<String?>(null) }
@@ -51,13 +52,14 @@ class MainActivity : ComponentActivity() {
                 var chatOtherUid by remember { mutableStateOf<String?>(null) }
                 var chatOtherName by remember { mutableStateOf<String?>(null) }
 
-                // Unread notifications state
+                // Unread state
                 var hasUnreadAnnouncements by remember { mutableStateOf(false) }
+                var hasUnreadMessages by remember { mutableStateOf(false) }
 
                 val auth = FirebaseAuth.getInstance()
                 val db = FirebaseFirestore.getInstance()
 
-                // Fetch user role and check for unread announcements
+                // Fetch user role and check for unread items
                 LaunchedEffect(auth.currentUser) {
                     val uid = auth.currentUser?.uid
                     if (uid != null) {
@@ -68,14 +70,38 @@ class MainActivity : ComponentActivity() {
                         // Listen for unread announcements
                         db.collection("announcements").addSnapshotListener { snapshot, _ ->
                             val announcements = snapshot?.documents ?: emptyList()
+                            val now = Timestamp.now()
                             hasUnreadAnnouncements = announcements.any { doc ->
-                                val readBy = doc.get("readBy") as? List<String> ?: emptyList()
-                                !readBy.contains(uid)
+                                val ann = doc.toObject(Announcement::class.java)
+                                if (ann != null) {
+                                    val isWithinDateRange = if (ann.isIndefinite) {
+                                        true
+                                    } else {
+                                        val start = ann.startDate
+                                        val end = ann.endDate
+                                        (start == null || start <= now) && (end == null || end >= now)
+                                    }
+                                    isWithinDateRange && !ann.readBy.contains(uid)
+                                } else false
                             }
                         }
+
+                        // Listen for unread chat messages
+                        db.collection("chats")
+                            .whereArrayContains("participants", uid)
+                            .addSnapshotListener { snapshot, _ ->
+                                if (snapshot != null) {
+                                    hasUnreadMessages = snapshot.documents.any { doc ->
+                                        val unreadCount = doc.getLong("unreadCount_$uid") ?: 0
+                                        unreadCount > 0
+                                    }
+                                }
+                            }
+
                     } else {
                         userRole = "public"
                         hasUnreadAnnouncements = false
+                        hasUnreadMessages = false
                     }
                 }
 
@@ -101,7 +127,7 @@ class MainActivity : ComponentActivity() {
                 ) || (isAdminReviewMode && screen == Screen.PostDetail)
 
                 val showBars = screen !in listOf(Screen.Login, Screen.Register)
-                
+
                 // New logic to hide Bars for specific detail views
                 val isViewingAdminReportDetail = screen == Screen.AdminReports && selectedReportItem != null
                 val isViewingAnnouncementDetail = screen == Screen.AnnouncementDetail
@@ -121,7 +147,6 @@ class MainActivity : ComponentActivity() {
                                         Screen.ChatRoom,
                                         Screen.CreateGroup,
                                         Screen.AdminCreateAnnouncement
-                                        // AnnouncementDetail is now hideBarsInternally
                                     )
 
                                     if (needsBack) {
@@ -289,7 +314,23 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         label = { Text(item.label) },
-                                        icon = { Icon(item.icon, contentDescription = item.label) }
+                                        icon = {
+                                            val showChatBadge = item.screen == Screen.ChatInbox && hasUnreadMessages
+                                            BadgedBox(
+                                                badge = {
+                                                    if (showChatBadge) {
+                                                        Badge(
+                                                            modifier = Modifier
+                                                                .size(10.dp)
+                                                                .offset(x = (4).dp, y = -5.dp),
+                                                            containerColor = Color(0xFF0D47A1)
+                                                        )
+                                                    }
+                                                }
+                                            ) {
+                                                Icon(item.icon, contentDescription = item.label)
+                                            }
+                                        }
                                     )
                                 }
                             }
