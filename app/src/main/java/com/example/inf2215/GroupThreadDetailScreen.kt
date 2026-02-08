@@ -48,8 +48,9 @@ fun GroupThreadDetailScreen(
     var title by remember { mutableStateOf("Loading...") }
     var body by remember { mutableStateOf("") }
     var createdByName by remember { mutableStateOf("") }
+    var createdById by remember { mutableStateOf("") }
     var commentsCount by remember { mutableStateOf(0) }
-    var createdAt by remember { mutableStateOf<Timestamp?>(null) } // To show date in header
+    var createdAt by remember { mutableStateOf<Timestamp?>(null) }
 
     var type by remember { mutableStateOf("NORMAL") }
     var runDistance by remember { mutableStateOf<String?>(null) }
@@ -67,6 +68,9 @@ fun GroupThreadDetailScreen(
     val threadRef = remember(groupId, threadId) {
         db.collection("groups").document(groupId)
             .collection("threads").document(threadId)
+    }
+    val groupRef = remember(groupId) {
+        db.collection("groups").document(groupId)
     }
 
     // Check Membership
@@ -98,6 +102,7 @@ fun GroupThreadDetailScreen(
             title = doc.getString("title") ?: "Untitled"
             body = doc.getString("body") ?: ""
             createdByName = doc.getString("createdByName") ?: "Unknown"
+            createdById = doc.getString("createdById") ?: ""
             commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt()
             createdAt = doc.getTimestamp("createdAt")
 
@@ -113,6 +118,17 @@ fun GroupThreadDetailScreen(
                 val lng = (it["lng"] as? Number)?.toDouble()
                 if (lat != null && lng != null) LatLng(lat, lng) else null
             } ?: emptyList()
+
+            // Clear notifications when opening thread
+            if (me != null && createdById == me) {
+                val threadUnread = doc.getLong("unreadCount_$me") ?: 0L
+                if (threadUnread > 0) {
+                    db.runBatch { batch ->
+                        batch.update(threadRef, "unreadCount_$me", 0)
+                        batch.update(groupRef, "unreadCount_$me", FieldValue.increment(-threadUnread))
+                    }
+                }
+            }
         }
 
         // Comments listener
@@ -319,7 +335,7 @@ fun GroupThreadDetailScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
@@ -419,12 +435,18 @@ fun GroupThreadDetailScreen(
 
                             threadRef.collection("comments").add(data)
                                 .addOnSuccessListener {
-                                    threadRef.update(
-                                        mapOf(
-                                            "commentsCount" to FieldValue.increment(1),
-                                            "lastActivityAt" to now
-                                        )
+                                    val updates = mutableMapOf<String, Any>(
+                                        "commentsCount" to FieldValue.increment(1),
+                                        "lastActivityAt" to now
                                     )
+                                    
+                                    // If commenter is not thread owner, increment owner's notification counts
+                                    if (createdById.isNotBlank() && createdById != me) {
+                                        updates["unreadCount_$createdById"] = FieldValue.increment(1)
+                                        groupRef.update("unreadCount_$createdById", FieldValue.increment(1))
+                                    }
+
+                                    threadRef.update(updates)
                                     newComment = ""
                                 }
                         }

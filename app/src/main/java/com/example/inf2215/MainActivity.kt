@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
                 // Unread state
                 var hasUnreadAnnouncements by remember { mutableStateOf(false) }
                 var hasUnreadMessages by remember { mutableStateOf(false) }
+                var hasUnreadCommunity by remember { mutableStateOf(false) }
 
                 val auth = FirebaseAuth.getInstance()
                 val db = FirebaseFirestore.getInstance()
@@ -98,10 +99,23 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                        // Listen for unread community thread replies
+                        db.collection("groups")
+                            .whereArrayContains("memberIds", uid)
+                            .addSnapshotListener { snapshot, _ ->
+                                if (snapshot != null) {
+                                    hasUnreadCommunity = snapshot.documents.any { doc ->
+                                        val unreadCount = doc.getLong("unreadCount_$uid") ?: 0
+                                        unreadCount > 0
+                                    }
+                                }
+                            }
+
                     } else {
                         userRole = "public"
                         hasUnreadAnnouncements = false
                         hasUnreadMessages = false
+                        hasUnreadCommunity = false
                     }
                 }
 
@@ -254,8 +268,8 @@ class MainActivity : ComponentActivity() {
                                                         if (hasUnreadAnnouncements) {
                                                             Badge(
                                                                 modifier = Modifier
-                                                                    .size(6.dp)
-                                                                    .offset(x = (-4).dp, y = 3.dp),
+                                                                    .size(8.dp)
+                                                                    .offset(x = (-7).dp, y = 9.dp),
                                                                 containerColor = Color.Red
                                                             )
                                                         }
@@ -315,15 +329,18 @@ class MainActivity : ComponentActivity() {
                                         },
                                         label = { Text(item.label) },
                                         icon = {
-                                            val showChatBadge = item.screen == Screen.ChatInbox && hasUnreadMessages
+                                            val showBadge = (item.screen == Screen.ChatInbox && hasUnreadMessages) || 
+                                                           (item.screen == Screen.Community && hasUnreadCommunity)
+                                            val badgeColor = Color(0xFF0D47A1) // Unified Dark blue
+                                            
                                             BadgedBox(
                                                 badge = {
-                                                    if (showChatBadge) {
+                                                    if (showBadge) {
                                                         Badge(
                                                             modifier = Modifier
-                                                                .size(10.dp)
-                                                                .offset(x = (4).dp, y = -5.dp),
-                                                            containerColor = Color(0xFF0D47A1)
+                                                                .size(8.dp)
+                                                                .offset(x = (5).dp, y = -7.dp),
+                                                            containerColor = badgeColor
                                                         )
                                                     }
                                                 }

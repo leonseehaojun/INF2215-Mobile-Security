@@ -118,6 +118,7 @@ data class GroupThread(
     val createdByName: String = "Unknown",
     val createdAt: Timestamp? = null,
     val commentsCount: Int = 0,
+    val unreadCount: Int = 0,
 
     val type: String = "NORMAL", // "NORMAL" or "RUN"
     val runDistance: String? = null,

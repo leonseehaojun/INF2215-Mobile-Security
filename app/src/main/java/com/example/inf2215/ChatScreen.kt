@@ -2,19 +2,25 @@ package com.example.inf2215
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun ChatScreen(
@@ -93,7 +99,40 @@ fun ChatScreen(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messages) { m ->
+            itemsIndexed(messages) { index, m ->
+                // Date Separator Logic
+                val showDate = if (index == 0) {
+                    true
+                } else {
+                    val prev = messages[index - 1].createdAt?.toDate()
+                    val curr = m.createdAt?.toDate()
+                    if (prev != null && curr != null) {
+                        val sdf = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+                        sdf.format(prev) != sdf.format(curr)
+                    } else false
+                }
+
+                if (showDate) {
+                    val dateStr = m.createdAt?.toDate()?.let {
+                        SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault()).format(it)
+                    } ?: ""
+                    if (dateStr.isNotBlank()) {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = dateStr,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
                 val isMe = m.senderId == myUid
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -101,13 +140,32 @@ fun ChatScreen(
                 ) {
                     Surface(
                         tonalElevation = 2.dp,
-                        shape = MaterialTheme.shapes.medium
+                        shape = RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (isMe) 16.dp else 4.dp,
+                            bottomEnd = if (isMe) 4.dp else 16.dp
+                        ),
+                        color = if (isMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        Text(
-                            text = m.text,
+                        Column(
                             modifier = Modifier.padding(10.dp),
-                            textAlign = if (isMe) TextAlign.End else TextAlign.Start
-                        )
+                            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+                        ) {
+                            Text(
+                                text = m.text,
+                                textAlign = if (isMe) TextAlign.End else TextAlign.Start
+                            )
+                            val timeStr = m.createdAt?.toDate()?.let {
+                                SimpleDateFormat("HH:mm", Locale.getDefault()).format(it)
+                            } ?: ""
+                            Text(
+                                text = timeStr,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(top = 2.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }
@@ -116,17 +174,19 @@ fun ChatScreen(
         Spacer(Modifier.height(8.dp))
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Message ${otherDisplayName}...") }
+                placeholder = { Text("Message ${otherDisplayName}...") },
+                shape = RoundedCornerShape(24.dp)
             )
-            Spacer(Modifier.width(8.dp))
-            Button(
+            
+            FilledIconButton(
                 enabled = input.isNotBlank(),
                 onClick = {
                     val text = input.trim()
@@ -138,8 +198,11 @@ fun ChatScreen(
                         otherUid = otherUserId,
                         text = text
                     )
-                }
-            ) { Text("Send") }
+                },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(Icons.Default.Send, contentDescription = "Send")
+            }
         }
     }
 }
@@ -149,7 +212,6 @@ private fun ensureChatDocExists(db: FirebaseFirestore, myUid: String, otherUid: 
     val chatRef = db.collection("chats").document(chatId)
 
     chatRef.get().addOnSuccessListener { doc ->
-        // Only run initialization if doc doesn't exist OR it's an old doc missing new fields
         val needsInit = !doc.exists() || !doc.contains("unreadCount_$myUid") || !doc.contains("otherName_$myUid")
         
         if (needsInit) {

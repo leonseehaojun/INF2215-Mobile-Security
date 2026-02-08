@@ -11,7 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.DirectionsRun
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +53,8 @@ fun GroupDetailScreen(
     var time by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var membersCount by remember { mutableStateOf(1) }
-    var ownerId by remember { mutableStateOf("") }  // Store owner ID
+    var ownerId by remember { mutableStateOf("") }
+    var currentMemberIds by remember { mutableStateOf(listOf<String>()) }
 
     // User State
     var isMember by remember { mutableStateOf(false) }
@@ -92,6 +93,7 @@ fun GroupDetailScreen(
                 description = doc.getString("description") ?: ""
                 membersCount = (doc.getLong("membersCount") ?: 1L).toInt()
                 ownerId = doc.getString("ownerId") ?: ""
+                currentMemberIds = doc.get("memberIds") as? List<String> ?: emptyList()
             }
     }
 
@@ -106,19 +108,16 @@ fun GroupDetailScreen(
             }
     }
 
-    // Fetch Members for Dialog
-    LaunchedEffect(showMembersDialog) {
-        if (showMembersDialog) {
-            db.collection("groups").document(groupId).collection("members")
-                .get()
-                .addOnSuccessListener { result ->
-                    membersList = result.documents.map { doc -> doc.data ?: emptyMap() }
-                }
+    // AUTO-REPAIR Logic
+    LaunchedEffect(isMember, currentMemberIds) {
+        if (isMember && me != null && !currentMemberIds.contains(me)) {
+            db.collection("groups").document(groupId)
+                .update("memberIds", FieldValue.arrayUnion(me))
         }
     }
 
     // Fetch Threads
-    LaunchedEffect(groupId) {
+    LaunchedEffect(groupId, me) {
         db.collection("groups").document(groupId)
             .collection("threads")
             .orderBy("createdAt", Query.Direction.DESCENDING)
@@ -136,6 +135,8 @@ fun GroupDetailScreen(
                         if (lat != null && lng != null) LatLng(lat, lng) else null
                     } ?: emptyList()
 
+                    val unread = if (me != null) d.getLong("unreadCount_$me")?.toInt() ?: 0 else 0
+
                     GroupThread(
                         id = d.id,
                         title = d.getString("title") ?: "Untitled",
@@ -144,6 +145,7 @@ fun GroupDetailScreen(
                         createdByName = d.getString("createdByName") ?: "Unknown",
                         createdAt = d.getTimestamp("createdAt"),
                         commentsCount = (d.getLong("commentsCount") ?: 0L).toInt(),
+                        unreadCount = unread,
                         type = d.getString("type") ?: "NORMAL",
                         runDistance = d.getString("runDistance"),
                         runDuration = d.getString("runDuration"),
@@ -200,10 +202,8 @@ fun GroupDetailScreen(
                     }
                 }
 
-                // Edit Button (Only visible to Leader)
                 if (isLeader) {
                     IconButton(onClick = {
-                        // Pre-fill fields with current data
                         editName = name
                         editArea = area
                         editDays = days.joinToString(", ")
@@ -226,7 +226,6 @@ fun GroupDetailScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Group Info Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -235,34 +234,22 @@ fun GroupDetailScreen(
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (area.isNotBlank()) {
-                                DetailRow(Icons.Default.LocationOn, "Location", area)
-                            }
-                            if (days.isNotEmpty()) {
-                                DetailRow(Icons.Default.CalendarMonth, "Days", days.joinToString(", "))
-                            }
-                            if (time.isNotBlank()) {
-                                DetailRow(Icons.Default.Schedule, "Time", time)
-                            }
+                            if (area.isNotBlank()) DetailRow(Icons.Default.LocationOn, "Location", area)
+                            if (days.isNotEmpty()) DetailRow(Icons.Default.CalendarMonth, "Days", days.joinToString(", "))
+                            if (time.isNotBlank()) DetailRow(Icons.Default.Schedule, "Time", time)
                         }
 
                         if (description.isNotBlank()) {
                             Spacer(modifier = Modifier.height(16.dp))
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "About",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("About", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(text = description, fontSize = 15.sp, lineHeight = 22.sp)
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Join/Leave Button
                         if (!isLeader) {
                             Button(
                                 onClick = {
@@ -284,12 +271,14 @@ fun GroupDetailScreen(
                                                 db.runBatch { batch ->
                                                     batch.set(memberRef, memberData)
                                                     batch.update(groupRef, "membersCount", FieldValue.increment(1))
+                                                    batch.update(groupRef, "memberIds", FieldValue.arrayUnion(me))
                                                 }.addOnCompleteListener { working = false }
                                             }.addOnFailureListener { working = false }
                                     } else {
                                         db.runBatch { batch ->
                                             batch.delete(memberRef)
                                             batch.update(groupRef, "membersCount", FieldValue.increment(-1))
+                                            batch.update(groupRef, "memberIds", FieldValue.arrayRemove(me))
                                         }.addOnCompleteListener { working = false }
                                     }
                                 },
@@ -298,21 +287,14 @@ fun GroupDetailScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 contentPadding = PaddingValues(vertical = 16.dp)
                             ) {
-                                if (working) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Text(if (isMember) "Leave Group" else "Join Group", fontWeight = FontWeight.Bold)
-                                }
+                                if (working) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                else Text(if (isMember) "Leave Group" else "Join Group", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
             }
 
-            // Threads Section Header
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -322,42 +304,13 @@ fun GroupDetailScreen(
                     Column {
                         Spacer(modifier = Modifier.height(20.dp))
                         Text("Discussion Threads", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "${threads.size} ${if (threads.size == 1) "thread" else "threads"}",
-                            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Text("${threads.size} ${if (threads.size == 1) "thread" else "threads"}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (isMember) {
-                        FilledTonalButton(
-                            onClick = { onCreateThread(groupId) },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
+                        FilledTonalButton(onClick = { onCreateThread(groupId) }, shape = RoundedCornerShape(12.dp)) {
                             Icon(Icons.Default.Add, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("New Thread", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-
-            if (!isMember && threads.isNotEmpty()) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                            Text(
-                                "Join this group to participate in discussions",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
                         }
                     }
                 }
@@ -368,53 +321,34 @@ fun GroupDetailScreen(
                     thread = thread,
                     currentUserId = me,
                     onClick = { onOpenThread(groupId, thread.id) },
-                    onDelete = {
-                        db.collection("groups").document(groupId)
-                            .collection("threads").document(thread.id).delete()
-                    }
+                    onDelete = { db.collection("groups").document(groupId).collection("threads").document(thread.id).delete() }
                 )
             }
         }
     }
 
-    // Members Dialog
     if (showMembersDialog) {
         Dialog(onDismissRequest = { showMembersDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp)
-            ) {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp)) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text("Group Members", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                    if (membersList.isEmpty()) {
-                        Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    } else {
+                    if (membersList.isEmpty()) Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    else {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(membersList) { member ->
                                 val mName = member["displayName"] as? String ?: "Unknown"
-                                val mRole = member["role"] as? String ?: "member"
-                                val isLeaderUser = (ownerId.isNotBlank() && member["userId"] == ownerId) || mRole == "owner"
-
+                                val isLeaderUser = (ownerId.isNotBlank() && member["userId"] == ownerId)
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = if (isLeaderUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Person, null, tint = if (isLeaderUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
+                                    Surface(shape = CircleShape, color = if (isLeaderUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(40.dp)) {
+                                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, tint = if (isLeaderUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
                                     Spacer(Modifier.width(12.dp))
                                     Column {
                                         Text(mName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                        if (isLeaderUser) {
-                                            Text("Group Leader", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                        if (isLeaderUser) Text("Group Leader", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
-                                Divider(modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                HorizontalDivider(modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             }
                         }
                     }
@@ -425,78 +359,30 @@ fun GroupDetailScreen(
         }
     }
 
-    // Edit Group Dialog
     if (showEditDialog) {
         AlertDialog(
             onDismissRequest = { if (!isSavingGroup) showEditDialog = false },
             title = { Text("Edit Group Details") },
             text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedTextField(
-                        value = editName,
-                        onValueChange = { editName = it },
-                        label = { Text("Group Name") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editArea,
-                        onValueChange = { editArea = it },
-                        label = { Text("Area") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editDays,
-                        onValueChange = { editDays = it },
-                        label = { Text("Days (comma separated)") },
-                        placeholder = { Text("Mon, Wed, Fri") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editTime,
-                        onValueChange = { editTime = it },
-                        label = { Text("Time") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = editDescription,
-                        onValueChange = { editDescription = it },
-                        label = { Text("Description") },
-                        minLines = 3,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = editName, onValueChange = { editName = it }, label = { Text("Group Name") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = editArea, onValueChange = { editArea = it }, label = { Text("Area") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = editDays, onValueChange = { editDays = it }, label = { Text("Days (comma separated)") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = editTime, onValueChange = { editTime = it }, label = { Text("Time") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = editDescription, onValueChange = { editDescription = it }, label = { Text("Description") }, minLines = 3, modifier = Modifier.fillMaxWidth())
                 }
             },
             confirmButton = {
-                Button(
-                    enabled = !isSavingGroup && editName.isNotBlank(),
-                    onClick = {
-                        isSavingGroup = true
-                        val newDaysList = editDays.split(",").map { it.trim() }.filter { it.isNotBlank() }
-
-                        db.collection("groups").document(groupId).update(
-                            mapOf(
-                                "name" to editName.trim(),
-                                "area" to editArea.trim(),
-                                "days" to newDaysList,
-                                "time" to editTime.trim(),
-                                "description" to editDescription.trim()
-                            )
-                        ).addOnCompleteListener {
-                            isSavingGroup = false
-                            showEditDialog = false
-                        }
-                    }
-                ) {
+                Button(enabled = !isSavingGroup && editName.isNotBlank(), onClick = {
+                    isSavingGroup = true
+                    val newDaysList = editDays.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    db.collection("groups").document(groupId).update(mapOf("name" to editName.trim(), "area" to editArea.trim(), "days" to newDaysList, "time" to editTime.trim(), "description" to editDescription.trim())).addOnCompleteListener { isSavingGroup = false; showEditDialog = false }
+                }) {
                     if (isSavingGroup) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     else Text("Save Changes")
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showEditDialog = false }) { Text("Cancel") } }
         )
     }
 }
@@ -517,12 +403,15 @@ fun DetailRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Stri
 }
 
 @Composable
-fun ThreadCard(
-    thread: GroupThread,
-    currentUserId: String?,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
-) {
+fun RunStatItem(label: String, value: String) {
+    Column {
+        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+@Composable
+fun ThreadCard(thread: GroupThread, currentUserId: String?, onClick: () -> Unit, onDelete: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -534,16 +423,8 @@ fun ThreadCard(
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Person, null, modifier = Modifier.padding(6.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
@@ -552,55 +433,37 @@ fun ThreadCard(
                         Text(if (thread.type == "RUN") "shared a run" else "started a discussion", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-
                 if (currentUserId == thread.createdById) {
                     Box {
-                        IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.MoreVert, "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.MoreVert, "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Delete") },
-                                onClick = { showMenu = false; showDeleteDialog = true },
-                                leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
-                            )
+                            DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; showDeleteDialog = true }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) })
                         }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-
-            // Content: Title & Body
             Text(thread.title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             if (thread.body.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(thread.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            // Rich Media: Run Map & Stats
             if (thread.type == "RUN" && thread.route.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                // Run Map
                 Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp))) {
                     val cameraState = rememberCameraPositionState()
                     LaunchedEffect(thread.route) {
                         if (thread.route.isNotEmpty()) {
-                            // Calculate bounds for camera
                             val bounds = LatLngBounds.builder().apply { thread.route.forEach { include(it) } }.build()
                             try { cameraState.move(CameraUpdateFactory.newLatLngBounds(bounds, 50)) }
                             catch (e: Exception) { cameraState.move(CameraUpdateFactory.newLatLngZoom(thread.route.first(), 15f)) }
                         }
                     }
-                    GoogleMap(
-                        modifier = Modifier.fillMaxSize(),
-                        cameraPositionState = cameraState,
-                        googleMapOptionsFactory = { GoogleMapOptions().liteMode(true) },
-                        uiSettings = MapUiSettings(zoomControlsEnabled = false)
-                    ) { Polyline(points = thread.route, color = Color(0xFFFF4500), width = 10f) }
+                    GoogleMap(modifier = Modifier.fillMaxSize(), cameraPositionState = cameraState, googleMapOptionsFactory = { GoogleMapOptions().liteMode(true) }, uiSettings = MapUiSettings(zoomControlsEnabled = false)) { Polyline(points = thread.route, color = Color(0xFFFF4500), width = 10f) }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                // Stats Grid
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     RunStatItem("Distance", thread.runDistance ?: "-")
                     RunStatItem("Time", thread.runDuration ?: "-")
@@ -609,34 +472,36 @@ fun ThreadCard(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Footer: Comments count
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.ChatBubbleOutline, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.width(4.dp))
+                BadgedBox(
+                    badge = {
+                        if (thread.unreadCount > 0) {
+                            Badge(
+                                containerColor = Color(0xFF0D47A1), // Unified Dark blue
+                                modifier = Modifier.offset(x = 4.dp, y = (-4).dp)
+                            ) {
+                                Text(thread.unreadCount.toString(), color = Color.White, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ChatBubbleOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("${thread.commentsCount} comments", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
             }
 
             if (showDeleteDialog) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteDialog = false },
-                    title = { Text("Delete Thread?") },
-                    text = { Text("Are you sure you want to delete this thread? This cannot be undone.") },
-                    confirmButton = { TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-                    dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
-                )
+                AlertDialog(onDismissRequest = { showDeleteDialog = false }, title = { Text("Delete Thread?") }, text = { Text("Are you sure you want to delete this thread? This cannot be undone.") }, confirmButton = { TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Delete", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } })
             }
         }
-    }
-}
-
-// Helper Composable for stats
-@Composable
-fun RunStatItem(label: String, value: String) {
-    Column {
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
