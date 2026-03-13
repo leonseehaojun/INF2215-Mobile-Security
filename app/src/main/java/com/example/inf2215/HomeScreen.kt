@@ -49,9 +49,6 @@ fun HomeScreen(
     // Combined Feed
     var feedItems by remember { mutableStateOf(listOf<FeedPost>()) }
 
-    // Track deleted IDs locally for instant UI updates
-    var deletedIds by remember { mutableStateOf(setOf<String>()) }
-
     // State to hold IDs for filtering
     var myGroupIds by remember { mutableStateOf(setOf<String>()) }
     var myFriendIds by remember { mutableStateOf(setOf<String>()) }
@@ -95,7 +92,8 @@ fun HomeScreen(
             // Combine user ID + Friend IDs
             val usersToFetch = (myFriendIds + currentUserId).toList()
 
-            // Firestore 'in' query limit is 10, for now take top 10 to prevent crash
+            // Firestore 'in' query limit is 10, for now take the top 10 to prevent crashes
+            // Ideally need to chunk this or fetch all and filter client-side
             val safeUsersList = if (usersToFetch.size > 10) usersToFetch.take(10) else usersToFetch
 
             if (safeUsersList.isNotEmpty()) {
@@ -138,12 +136,11 @@ fun HomeScreen(
     }
 
     // Merge and Sort
-    LaunchedEffect(rawPosts, rawThreads, deletedIds) {
+    LaunchedEffect(rawPosts, rawThreads) {
         val combined = (rawPosts + rawThreads)
             .sortedByDescending { it.createdAt }
+            // If two posts have the same runId (and not null) keep only the first one
             .distinctBy { if (it.runId != null) it.runId else it.id }
-            // Filter out deleted items immediately
-            .filter { it.id !in deletedIds }
 
         feedItems = combined
     }
@@ -171,19 +168,11 @@ fun HomeScreen(
                         onNavigateToPostDetail(post.id)
                     }
                 },
-                onCommentClick = { /* ... */ },
-                // Pass delete handler
-                onDelete = {
-                    // Hide deleted posts instantly
-                    deletedIds = deletedIds + post.id
-
-                    // Delete from database
+                onCommentClick = {
                     if (post.type == "THREAD" && post.groupId != null) {
-                        db.collection("groups").document(post.groupId)
-                            .collection("threads").document(post.id)
-                            .delete()
+                        onNavigateToThread(post.groupId, post.id)
                     } else {
-                        db.collection("posts").document(post.id).delete()
+                        onNavigateToPostDetail(post.id)
                     }
                 }
             )
@@ -254,18 +243,13 @@ fun parseGroupThreadAsPost(doc: com.google.firebase.firestore.DocumentSnapshot, 
 fun PostCard(
     post: FeedPost,
     onClick: () -> Unit,
-    onCommentClick: () -> Unit,
-    onDelete: () -> Unit
+    onCommentClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        PostContent(
-            post = post,
-            onCommentClick = onCommentClick,
-            onDelete = onDelete
-        )
+        PostContent(post = post, onCommentClick = onCommentClick)
     }
 }
 
@@ -273,13 +257,10 @@ fun PostCard(
 @Composable
 fun PostContent(
     post: FeedPost,
-    onCommentClick: () -> Unit,
-    onDelete: () -> Unit
+    onCommentClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     val currentUserId = auth.currentUser?.uid ?: ""
@@ -341,20 +322,10 @@ fun PostContent(
                             showMenu = false
                             showReportDialog = true
                         },
-                        leadingIcon = { Icon(Icons.Default.ErrorOutline, contentDescription = null) }
+                        leadingIcon = {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null)
+                        }
                     )
-
-                    // Show Delete if Author
-                    if (currentUserId == post.userId) {
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
-                            onClick = {
-                                showMenu = false
-                                showDeleteDialog = true
-                            },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
-                        )
-                    }
                 }
             }
         }
@@ -538,35 +509,12 @@ fun PostContent(
         }
     }
 
-    // Report Dialog
     if (showReportDialog) {
         ReportDialog(
             targetUserId = post.userId,
             targetType = if(post.type == "THREAD") 3 else 1,
             attachedId = post.id,
             onDismiss = { showReportDialog = false }
-        )
-    }
-
-    // Delete Dialog
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Post?") },
-            text = { Text("Are you sure you want to delete this post? This cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        onDelete() // Call the callback passed from parent
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
-            }
         )
     }
 }

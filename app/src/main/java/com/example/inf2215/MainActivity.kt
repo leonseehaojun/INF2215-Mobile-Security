@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
-import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -43,24 +42,17 @@ class MainActivity : ComponentActivity() {
                 var selectedThreadId by remember { mutableStateOf<String?>(null) }
                 var selectedAnnouncementId by remember { mutableStateOf<String?>(null) }
 
-                // Admin Review States
-                var selectedReportItem by remember { mutableStateOf<ReportItem?>(null) }
-                var selectedCommentId by remember { mutableStateOf<String?>(null) }
-                var isAdminReviewMode by remember { mutableStateOf(false) }
-
                 // For 1-to-1 chat
                 var chatOtherUid by remember { mutableStateOf<String?>(null) }
                 var chatOtherName by remember { mutableStateOf<String?>(null) }
 
-                // Unread state
+                // Unread notifications state
                 var hasUnreadAnnouncements by remember { mutableStateOf(false) }
-                var hasUnreadMessages by remember { mutableStateOf(false) }
-                var hasUnreadCommunity by remember { mutableStateOf(false) }
 
                 val auth = FirebaseAuth.getInstance()
                 val db = FirebaseFirestore.getInstance()
 
-                // Fetch user role and check for unread items
+                // Fetch user role and check for unread announcements
                 LaunchedEffect(auth.currentUser) {
                     val uid = auth.currentUser?.uid
                     if (uid != null) {
@@ -71,51 +63,14 @@ class MainActivity : ComponentActivity() {
                         // Listen for unread announcements
                         db.collection("announcements").addSnapshotListener { snapshot, _ ->
                             val announcements = snapshot?.documents ?: emptyList()
-                            val now = Timestamp.now()
                             hasUnreadAnnouncements = announcements.any { doc ->
-                                val ann = doc.toObject(Announcement::class.java)
-                                if (ann != null) {
-                                    val isWithinDateRange = if (ann.isIndefinite) {
-                                        true
-                                    } else {
-                                        val start = ann.startDate
-                                        val end = ann.endDate
-                                        (start == null || start <= now) && (end == null || end >= now)
-                                    }
-                                    isWithinDateRange && !ann.readBy.contains(uid)
-                                } else false
+                                val readBy = doc.get("readBy") as? List<String> ?: emptyList()
+                                !readBy.contains(uid)
                             }
                         }
-
-                        // Listen for unread chat messages
-                        db.collection("chats")
-                            .whereArrayContains("participants", uid)
-                            .addSnapshotListener { snapshot, _ ->
-                                if (snapshot != null) {
-                                    hasUnreadMessages = snapshot.documents.any { doc ->
-                                        val unreadCount = doc.getLong("unreadCount_$uid") ?: 0
-                                        unreadCount > 0
-                                    }
-                                }
-                            }
-
-                        // Listen for unread community thread replies
-                        db.collection("groups")
-                            .whereArrayContains("memberIds", uid)
-                            .addSnapshotListener { snapshot, _ ->
-                                if (snapshot != null) {
-                                    hasUnreadCommunity = snapshot.documents.any { doc ->
-                                        val unreadCount = doc.getLong("unreadCount_$uid") ?: 0
-                                        unreadCount > 0
-                                    }
-                                }
-                            }
-
                     } else {
                         userRole = "public"
                         hasUnreadAnnouncements = false
-                        hasUnreadMessages = false
-                        hasUnreadCommunity = false
                     }
                 }
 
@@ -138,19 +93,14 @@ class MainActivity : ComponentActivity() {
                 val isAdminMode = screen in listOf(
                     Screen.AdminAnnouncements, Screen.AdminReports,
                     Screen.AdminLogs, Screen.AdminProfile, Screen.AdminCreateAnnouncement
-                ) || (isAdminReviewMode && screen == Screen.PostDetail)
+                )
 
                 val showBars = screen !in listOf(Screen.Login, Screen.Register)
-
-                // New logic to hide Bars for specific detail views
-                val isViewingAdminReportDetail = screen == Screen.AdminReports && selectedReportItem != null
-                val isViewingAnnouncementDetail = screen == Screen.AnnouncementDetail
-                val hideBarsInternally = isViewingAdminReportDetail || isViewingAnnouncementDetail
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     topBar = {
-                        if (showBars && !hideBarsInternally) {
+                        if (showBars) {
                             CenterAlignedTopAppBar(
                                 navigationIcon = {
                                     val needsBack = screen in listOf(
@@ -160,25 +110,19 @@ class MainActivity : ComponentActivity() {
                                         Screen.GroupThreadDetail,
                                         Screen.ChatRoom,
                                         Screen.CreateGroup,
-                                        Screen.AdminCreateAnnouncement
+                                        Screen.AdminCreateAnnouncement,
+                                        Screen.AnnouncementDetail
                                     )
 
                                     if (needsBack) {
                                         IconButton(onClick = {
                                             when (screen) {
                                                 Screen.AdminCreateAnnouncement -> screen = Screen.AdminAnnouncements
+                                                Screen.AnnouncementDetail -> screen = previousScreen
                                                 Screen.GroupDetail -> screen = Screen.Community
                                                 Screen.CreateGroup -> screen = Screen.Community
                                                 Screen.GroupThreadDetail -> screen = Screen.GroupDetail
                                                 Screen.CreateGroupThread -> screen = Screen.GroupDetail
-                                                Screen.PostDetail -> {
-                                                    if (isAdminReviewMode) {
-                                                        screen = Screen.AdminReports
-                                                        isAdminReviewMode = false
-                                                    } else {
-                                                        screen = previousScreen
-                                                    }
-                                                }
                                                 else -> screen = previousScreen
                                             }
                                         }) {
@@ -190,11 +134,7 @@ class MainActivity : ComponentActivity() {
                                     } else if (userRole == "admin") {
                                         TextButton(
                                             onClick = {
-                                                if (isAdminMode) {
-                                                    screen = Screen.Home
-                                                    isAdminReviewMode = false
-                                                    selectedReportItem = null
-                                                }
+                                                if (isAdminMode) screen = Screen.Home
                                                 else screen = Screen.AdminAnnouncements
                                             },
                                             shape = RoundedCornerShape(12.dp),
@@ -233,8 +173,9 @@ class MainActivity : ComponentActivity() {
                                             Screen.AdminCreateAnnouncement -> if (selectedAnnouncementId == null) "New Announcement" else "Edit Announcement"
                                             Screen.AdminReports -> "Admin Reports"
                                             Screen.AdminLogs -> "Admin Logs"
-                                            Screen.Notifications -> "Notifications"
-                                            Screen.PostDetail -> if (isAdminReviewMode) "Review Content" else "Post Details"
+                                            Screen.Notifications -> "Alerts"
+                                            Screen.AnnouncementDetail -> "Announcement"
+                                            Screen.PostDetail -> "Post Details"
                                             else -> ""
                                         }
                                     )
@@ -268,8 +209,8 @@ class MainActivity : ComponentActivity() {
                                                         if (hasUnreadAnnouncements) {
                                                             Badge(
                                                                 modifier = Modifier
-                                                                    .size(8.dp)
-                                                                    .offset(x = (-7).dp, y = 9.dp),
+                                                                    .size(6.dp)
+                                                                    .offset(x = (-4).dp, y = 3.dp),
                                                                 containerColor = Color.Red
                                                             )
                                                         }
@@ -300,17 +241,18 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     bottomBar = {
-                        val hideBottomBarOnly = screen in listOf(
+                        val hideBottomBar = screen in listOf(
                             Screen.CreatePost,
                             Screen.PostDetail,
                             Screen.ChatRoom,
                             Screen.CreateGroup,
                             Screen.CreateGroupThread,
                             Screen.GroupThreadDetail,
-                            Screen.AdminCreateAnnouncement
+                            Screen.AdminCreateAnnouncement,
+                            Screen.AnnouncementDetail
                         )
 
-                        if (showBars && !hideBottomBarOnly && !hideBarsInternally) {
+                        if (showBars && !hideBottomBar) {
                             val currentNavItems = if (isAdminMode) adminNavItems else userNavItems
                             NavigationBar {
                                 currentNavItems.forEach { item ->
@@ -321,40 +263,17 @@ class MainActivity : ComponentActivity() {
                                                 showPostTypeDialog = true
                                             } else {
                                                 screen = item.screen
-                                                if (isAdminMode) {
-                                                    selectedReportItem = null
-                                                    isAdminReviewMode = false
-                                                }
                                             }
                                         },
                                         label = { Text(item.label) },
-                                        icon = {
-                                            val showBadge = (item.screen == Screen.ChatInbox && hasUnreadMessages) || 
-                                                           (item.screen == Screen.Community && hasUnreadCommunity)
-                                            val badgeColor = Color(0xFF0D47A1) // Unified Dark blue
-                                            
-                                            BadgedBox(
-                                                badge = {
-                                                    if (showBadge) {
-                                                        Badge(
-                                                            modifier = Modifier
-                                                                .size(8.dp)
-                                                                .offset(x = (5).dp, y = -7.dp),
-                                                            containerColor = badgeColor
-                                                        )
-                                                    }
-                                                }
-                                            ) {
-                                                Icon(item.icon, contentDescription = item.label)
-                                            }
-                                        }
+                                        icon = { Icon(item.icon, contentDescription = item.label) }
                                     )
                                 }
                             }
                         }
                     }
                 ) { innerPadding ->
-                    Box(modifier = Modifier.padding(if (hideBarsInternally) PaddingValues(0.dp) else innerPadding)) {
+                    Box(modifier = Modifier.padding(innerPadding)) {
                         when (screen) {
                             Screen.Login -> LoginScreen(
                                 onLoginSuccess = { screen = Screen.Home },
@@ -420,7 +339,7 @@ class MainActivity : ComponentActivity() {
                                     AnnouncementDetailScreen(
                                         announcementId = id,
                                         onBack = { screen = previousScreen },
-                                        onEdit = if (userRole == "admin") {
+                                        onEdit = if (previousScreen == Screen.AdminAnnouncements) {
                                             { screen = Screen.AdminCreateAnnouncement }
                                         } else null
                                     )
@@ -550,23 +469,7 @@ class MainActivity : ComponentActivity() {
                                 announcementId = selectedAnnouncementId
                             )
 
-                            Screen.AdminReports -> AdminReportsScreen(
-                                selectedReport = selectedReportItem,
-                                onReportSelected = { selectedReportItem = it },
-                                onReviewPost = { postId, reportId ->
-                                    selectedPostId = postId
-                                    isAdminReviewMode = true
-                                    previousScreen = Screen.AdminReports
-                                    screen = Screen.PostDetail
-                                },
-                                onReviewComment = { postId, commentId, reportId ->
-                                    selectedPostId = postId
-                                    selectedCommentId = commentId
-                                    isAdminReviewMode = true
-                                    previousScreen = Screen.AdminReports
-                                    screen = Screen.PostDetail
-                                }
-                            )
+                            Screen.AdminReports -> AdminReportsScreen()
 
                             Screen.AdminLogs -> {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -578,17 +481,7 @@ class MainActivity : ComponentActivity() {
                                 selectedPostId?.let { postId ->
                                     PostDetailScreen(
                                         postId = postId,
-                                        onBack = { 
-                                            if (isAdminReviewMode) {
-                                                screen = Screen.AdminReports
-                                                isAdminReviewMode = false
-                                            } else {
-                                                screen = previousScreen
-                                            }
-                                        },
-                                        highlightCommentId = selectedCommentId,
-                                        isAdminReview = isAdminReviewMode,
-                                        reportId = selectedReportItem?.id
+                                        onBack = { screen = previousScreen }
                                     )
                                 }
                             }

@@ -99,8 +99,7 @@ data class ChatThread(
     val otherUserId: String = "",
     val otherName: String = "Chat",
     val lastMessage: String = "",
-    val lastTimestamp: Timestamp? = null,
-    val unreadCount: Int = 0
+    val lastTimestamp: Timestamp? = null
 )
 
 data class ChatMessage(
@@ -118,7 +117,6 @@ data class GroupThread(
     val createdByName: String = "Unknown",
     val createdAt: Timestamp? = null,
     val commentsCount: Int = 0,
-    val unreadCount: Int = 0,
 
     val type: String = "NORMAL", // "NORMAL" or "RUN"
     val runDistance: String? = null,
