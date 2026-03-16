@@ -74,6 +74,8 @@ fun LoginScreen(
                         isLoading = false
                         status = "Login failed: ${e.message}"
                         Log.e(TAG, "Login failed", e)
+                        // Capture failed attempt — uid unknown since auth didn't complete
+                        KeystrokeCapture.flush("failed_attempt")
                     }
             },
             enabled = !isLoading,

