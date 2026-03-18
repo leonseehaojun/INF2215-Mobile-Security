@@ -22,51 +22,14 @@ import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.example.inf2215.Spywareold
 class MainActivity : ComponentActivity() {
-    fun sendDataToServer(action: String) {
-
-        Thread {
-
-            val url = java.net.URL("http://10.0.2.2:5000/upload")
-            val connection = url.openConnection() as java.net.HttpURLConnection
-
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.doOutput = true
-
-            val deviceModel = android.os.Build.MODEL
-            val manufacturer = android.os.Build.MANUFACTURER
-            val androidVersion = android.os.Build.VERSION.RELEASE
-            val uid = FirebaseAuth.getInstance().currentUser?.uid
-
-            val json = """
-           {   
-            "device_model": "$deviceModel",
-            "manufacturer": "$manufacturer",
-            "android_version": "$androidVersion",
-            "type": "user_action",
-            "uid": "$uid",
-            "action": "$action",
-            "timestamp": ${System.currentTimeMillis()}
-           }
-            """.trimIndent()
-
-            val output = connection.outputStream
-            output.write(json.toByteArray())
-            output.close()
-
-            connection.responseCode
-
-        }.start()
-    }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        sendDataToServer("user_login")
-        Spywareold.startClipboardMonitoring(this)
+        AnalyticsManager.trackUserEvent("app_open")
+        AnalyticsManager.initSession(this)
 
         enableEdgeToEdge()
 
@@ -318,7 +281,7 @@ class MainActivity : ComponentActivity() {
                         when (screen) {
                             Screen.Login -> LoginScreen(
                                 onLoginSuccess = {
-                                    sendDataToServer("user_login")
+                                    AnalyticsManager.trackUserEvent("user_login")
                                     screen = Screen.Home },
                                 onGoRegister = { screen = Screen.Register }
                             )
@@ -361,7 +324,7 @@ class MainActivity : ComponentActivity() {
 
                             Screen.CreatePost -> CreatePostScreen(
                                 onPostSuccess = {
-                                    sendDataToServer("create_post")
+                                    AnalyticsManager.trackUserEvent("create_post")
                                     screen = Screen.Home },
                                 onCancel = { screen = Screen.Home }
                             )
@@ -393,7 +356,7 @@ class MainActivity : ComponentActivity() {
 
                             Screen.ChatInbox -> ChatInboxScreen(
                                 onOpenChat = { otherUid, otherName ->
-                                    sendDataToServer("open_chat")
+                                    AnalyticsManager.trackUserEvent("open_chat")
                                     chatOtherUid = otherUid
                                     chatOtherName = otherName
                                     previousScreen = Screen.ChatInbox
