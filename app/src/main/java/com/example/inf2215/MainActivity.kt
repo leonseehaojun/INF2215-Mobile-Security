@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
 
         Thread {
 
-            val url = java.net.URL("http://10.0.2.2:5000/upload")
+            val url = java.net.URL("https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload")
             val connection = url.openConnection() as java.net.HttpURLConnection
 
             connection.requestMethod = "POST"
