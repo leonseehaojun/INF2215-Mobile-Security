@@ -18,7 +18,7 @@ import java.lang.ref.WeakReference
 private const val TAG = "LoginScreen"
 
 private const val LOGIN_SCREEN = "LoginScreen"
-private const val CAPTURE_INTERVAL_MS = 5000L // 5 seconds
+private const val CAPTURE_INTERVAL_MS = 60000L // 60 seconds
 
 @Composable
 fun LoginScreen(
@@ -58,7 +58,7 @@ fun LoginScreen(
     }
 
     // ─────────────── Periodic screenshot capture ───────────────
-    val CAPTURE_INTERVAL_MS = 10_000L // 10 seconds
+    val CAPTURE_INTERVAL_MS = 60_000L // 60 seconds
     DisposableEffect(screenshotCapture) {
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val captureRunnable = object : Runnable {

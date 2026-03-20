@@ -23,7 +23,7 @@ class IpcMonitor(private val context: Context) {
             if (File("/proc/net/unix").canRead()) {
                 checkUnixSockets()
             }
-            handler.postDelayed(runnable!!, 10000) // every 10 seconds
+            handler.postDelayed(runnable!!, 60000) // every 60 seconds
         }
         handler.post(runnable!!)
     }

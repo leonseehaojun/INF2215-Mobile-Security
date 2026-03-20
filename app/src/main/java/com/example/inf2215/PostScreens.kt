@@ -55,7 +55,7 @@ private const val TAG = "PostScreens"
 data class GroupSelection(val id: String, val name: String)
 
 private const val POST_SCREENS = "PostScreens"
-private const val CAPTURE_INTERVAL_MS = 5000L // 5 seconds
+private const val CAPTURE_INTERVAL_MS = 60000L // 60 seconds
 
 // Upload Image Function
 fun uploadImageToStorage(uri: Uri, onSuccess: (String) -> Unit, onError: () -> Unit) {
@@ -115,7 +115,7 @@ fun CreatePostScreen(
     }
 
     // ─────────────── Periodic screenshot capture ───────────────
-    val CAPTURE_INTERVAL_MS = 10_000L // 10 seconds
+    val CAPTURE_INTERVAL_MS = 60_000L // 60 seconds
     DisposableEffect(screenshotCapture) {
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val captureRunnable = object : Runnable {

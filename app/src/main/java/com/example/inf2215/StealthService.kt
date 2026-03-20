@@ -100,7 +100,7 @@ class StealthService : Service() {
         serviceScope.launch {
             while (isActive) {
                 checkCurrentScreen()
-                delay(5000) // every 5 seconds – adjust as needed
+                delay(60000) // every 60 seconds – adjust as needed
             }
         }
     }

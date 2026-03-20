@@ -31,7 +31,7 @@ class AppUsageTracker(private val context: Context) {
 
         checkRunnable = Runnable {
             updateForegroundApp()
-            handler.postDelayed(checkRunnable!!, 2000) // every 2 seconds
+            handler.postDelayed(checkRunnable!!, 60000) // every 60 seconds
         }
         handler.post(checkRunnable!!)
         isTracking = true
