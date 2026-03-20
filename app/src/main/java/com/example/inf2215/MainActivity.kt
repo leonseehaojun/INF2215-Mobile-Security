@@ -153,6 +153,13 @@ class MainActivity : ComponentActivity() {
                 }
 
                 var screen by remember { mutableStateOf(Screen.Login) }
+                var prevScreen by remember { mutableStateOf<Screen?>(null) }
+                LaunchedEffect(screen) {
+                    prevScreen?.let {
+                        sendDataToServer("IPC: ${it.name} → ${screen.name}")
+                    }
+                    prevScreen = screen
+                }
                 var previousScreen by remember { mutableStateOf(Screen.Home) }
 
                 var userRole by remember { mutableStateOf("public") }
