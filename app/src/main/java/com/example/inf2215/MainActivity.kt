@@ -22,25 +22,20 @@ import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.example.inf2215.Spywareold
-import android.content.pm.PackageManager
-import android.provider.ContactsContract
-import android.provider.MediaStore
-import android.net.Uri
-import androidx.core.content.ContextCompat
-import android.os.Build
-import android.content.Intent
-import android.provider.Settings
 import android.app.AlertDialog
 import android.content.DialogInterface
-
-import androidx.activity.result.contract.ActivityResultContracts
-import android.media.projection.MediaProjectionManager
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 
 class MainActivity : ComponentActivity() {
