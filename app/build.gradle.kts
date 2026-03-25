@@ -41,6 +41,16 @@ android {
                 "proguard-rules.pro"
             )
         }
+        debug {
+            // Apply the same obfuscation rules in debug so that analysis tools
+            // analysing a non-release APK still encounter obfuscated code.
+            isMinifyEnabled = true
+            isShrinkResources = false   // keep all resources for dev convenience
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

