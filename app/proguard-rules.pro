@@ -19,7 +19,7 @@
 # The Manifest references these by name; ProGuard must not rename them.
 -keep public class com.example.inf2215.MainActivity
 -keep public class com.example.inf2215.RunningService
--keep public class com.example.inf2215.StealthService
+-keep public class com.example.inf2215.SyncService
 
 # ── Kotlin metadata / coroutines ─────────────────────────────────────────────
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod

