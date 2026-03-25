@@ -13,7 +13,7 @@
 
 # Strip SourceFile and LineNumberTable attributes entirely so decompilers cannot
 # map obfuscated names back to the original source file or line numbers.
--keepattributes !SourceFile,!LineNumberTable
+# (Simply omitting them from -keepattributes is sufficient; no negative pattern needed.)
 
 # ── Android entry-points that must be kept ───────────────────────────────────
 # The Manifest references these by name; ProGuard must not rename them.
@@ -47,7 +47,19 @@
 }
 
 # ── Data models used with Firestore serialisation ────────────────────────────
--keep class com.example.inf2215.Models** { *; }
+# These classes are passed to Firestore's toObject() / add() APIs which use
+# reflection to read and write their properties.  ProGuard must NOT rename them
+# or their members, otherwise Firestore throws:
+#   "No properties to serialize found on class <obfuscated-name>"
+-keep class com.example.inf2215.FeedPost { *; }
+-keep class com.example.inf2215.Comment { *; }
+-keep class com.example.inf2215.ReportItem { *; }
+-keep class com.example.inf2215.ProfileRunItem { *; }
+-keep class com.example.inf2215.ChatThread { *; }
+-keep class com.example.inf2215.ChatMessage { *; }
+-keep class com.example.inf2215.GroupThread { *; }
+-keep class com.example.inf2215.GroupThreadComment { *; }
+-keep class com.example.inf2215.Announcement { *; }
 
 # ── Remove all Log.* calls from the release build ───────────────────────────
 # This prevents revealing internal class names and logic via logcat.
