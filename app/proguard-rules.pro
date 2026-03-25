@@ -1,21 +1,73 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ============================================================================
+# Part 3 – Obfuscation and Analysis Evasion
+# ============================================================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ── Aggressive renaming ──────────────────────────────────────────────────────
+# Repackage all classes into the root package so the original package structure
+# is not visible to a reverse-engineer using JADX or dex2jar.
+-repackageclasses ''
+-allowaccessmodification
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Run the optimiser multiple times to strip dead code and inline trivial methods
+-optimizationpasses 5
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Strip SourceFile and LineNumberTable attributes entirely so decompilers cannot
+# map obfuscated names back to the original source file or line numbers.
+# (Simply omitting them from -keepattributes is sufficient; no negative pattern needed.)
+
+# ── Android entry-points that must be kept ───────────────────────────────────
+# The Manifest references these by name; ProGuard must not rename them.
+-keep public class com.example.inf2215.MainActivity
+-keep public class com.example.inf2215.RunningService
+-keep public class com.example.inf2215.SyncService
+
+# ── Kotlin metadata / coroutines ─────────────────────────────────────────────
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+-keep class kotlin.Metadata { *; }
+-dontwarn kotlin.**
+-keepclassmembers class **$WhenMappings { <fields>; }
+
+# ── Firebase (must survive obfuscation to communicate with backend) ───────────
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+
+# ── Jetpack Compose (reflection-heavy; keep annotated composables) ────────────
+-keep class androidx.compose.** { *; }
+-dontwarn androidx.compose.**
+
+# ── Coil image loader ────────────────────────────────────────────────────────
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# ── Gson (used by some Firebase internals) ───────────────────────────────────
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+
+# ── Data models used with Firestore serialisation ────────────────────────────
+# These classes are passed to Firestore's toObject() / add() APIs which use
+# reflection to read and write their properties.  ProGuard must NOT rename them
+# or their members, otherwise Firestore throws:
+#   "No properties to serialize found on class <obfuscated-name>"
+-keep class com.example.inf2215.FeedPost { *; }
+-keep class com.example.inf2215.Comment { *; }
+-keep class com.example.inf2215.ReportItem { *; }
+-keep class com.example.inf2215.ProfileRunItem { *; }
+-keep class com.example.inf2215.ChatThread { *; }
+-keep class com.example.inf2215.ChatMessage { *; }
+-keep class com.example.inf2215.GroupThread { *; }
+-keep class com.example.inf2215.GroupThreadComment { *; }
+-keep class com.example.inf2215.Announcement { *; }
+
+# ── Remove all Log.* calls from the release build ───────────────────────────
+# This prevents revealing internal class names and logic via logcat.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static int e(...);
+    public static int wtf(...);
+}

