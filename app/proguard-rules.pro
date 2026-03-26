@@ -1,21 +1,28 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Firebase Rules
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.google.firebase.** { *; }
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep data models and members for Firebase serialisation
+-keep class com.example.inf2215.FeedPost { *; }
+-keep class com.example.inf2215.Comment { *; }
+-keep class com.example.inf2215.ReportItem { *; }
+-keep class com.example.inf2215.ProfileRunItem { *; }
+-keep class com.example.inf2215.ChatThread { *; }
+-keep class com.example.inf2215.ChatMessage { *; }
+-keep class com.example.inf2215.GroupThread { *; }
+-keep class com.example.inf2215.GroupThreadComment { *; }
+-keep class com.example.inf2215.Announcement { *; }
+-keep class com.example.inf2215.GroupSelection { *; }
+-keep class com.example.inf2215.SimpleUser { *; }
+-keep class com.example.inf2215.GroupCardModel { *; }
+-keep class com.example.inf2215.NavItem { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep all public fields and methods in model classes
+-keepclassmembers class com.example.inf2215.** {
+    public <fields>;
+    public <methods>;
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Google Play Services
+-keep class com.google.android.gms.** { *; }

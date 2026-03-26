@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.IgnoreExtraProperties
 
 enum class Screen {
     Login,
@@ -43,6 +44,7 @@ data class NavItem(
     val icon: ImageVector
 )
 
+@IgnoreExtraProperties
 data class FeedPost(
     val id: String = "",
     val userId: String = "",
@@ -62,6 +64,7 @@ data class FeedPost(
     val runId: String? = null
 )
 
+@IgnoreExtraProperties
 data class Comment(
     val id: String = "",
     val postId: String = "",
@@ -72,6 +75,7 @@ data class Comment(
     val parentId: String? = null
 )
 
+@IgnoreExtraProperties
 data class ReportItem(
     val id: String = "",
     val targetUserId: String = "",
@@ -85,6 +89,7 @@ data class ReportItem(
     val timestamp: Timestamp? = null
 )
 
+@IgnoreExtraProperties
 data class ProfileRunItem(
     val id: String = "",
     val title: String = "",
@@ -94,6 +99,7 @@ data class ProfileRunItem(
     val timestamp: Timestamp? = null
 )
 
+@IgnoreExtraProperties
 data class ChatThread(
     val chatId: String = "",
     val otherUserId: String = "",
@@ -102,6 +108,7 @@ data class ChatThread(
     val lastTimestamp: Timestamp? = null
 )
 
+@IgnoreExtraProperties
 data class ChatMessage(
     val id: String = "",
     val senderId: String = "",
@@ -109,6 +116,7 @@ data class ChatMessage(
     val createdAt: Timestamp? = null
 )
 
+@IgnoreExtraProperties
 data class GroupThread(
     val id: String = "",
     val title: String = "",
@@ -125,6 +133,7 @@ data class GroupThread(
     val route: List<LatLng> = emptyList()
 )
 
+@IgnoreExtraProperties
 data class GroupThreadComment(
     val id: String = "",
     val userId: String = "",
@@ -137,6 +146,7 @@ enum class AnnouncementType {
     News, SystemNotice, ServiceAlert
 }
 
+@IgnoreExtraProperties
 data class Announcement(
     val id: String = "",
     val title: String = "",
