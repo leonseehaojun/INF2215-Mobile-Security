@@ -259,6 +259,29 @@ fun PostDetailScreen(
                                         db.collection("comments").add(commentData).addOnSuccessListener {
                                             db.collection("posts").document(postId)
                                                 .update("commentsCount", FieldValue.increment(1))
+
+                                            val postOwnerId = post?.userId ?: ""
+
+                                            // only notify if commenting on someone else's post
+                                            if (postOwnerId.isNotBlank() && postOwnerId != user.uid) {
+                                                val messageText =
+                                                    if (replyingTo != null) "$displayName replied to your comment"
+                                                    else "$displayName commented on your post"
+
+                                                val notificationData = hashMapOf(
+                                                    "type" to "comment",
+                                                    "toUserId" to postOwnerId,
+                                                    "fromUserId" to user.uid,
+                                                    "fromDisplayName" to displayName,
+                                                    "postId" to postId,
+                                                    "message" to messageText,
+                                                    "createdAt" to Timestamp.now(),
+                                                    "isRead" to false
+                                                )
+
+                                                db.collection("notifications").add(notificationData)
+                                            }
+
                                             newCommentText = ""
                                             replyingTo = null
                                         }

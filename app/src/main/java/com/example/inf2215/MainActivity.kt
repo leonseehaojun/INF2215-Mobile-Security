@@ -814,6 +814,11 @@ class MainActivity : ComponentActivity() {
                                     selectedAnnouncementId = announcementId
                                     previousScreen = Screen.Notifications
                                     screen = Screen.AnnouncementDetail
+                                },
+                                onPostNotificationClick = { postId ->
+                                    selectedPostId = postId
+                                    previousScreen = Screen.Notifications
+                                    screen = Screen.PostDetail
                                 }
                             )
 

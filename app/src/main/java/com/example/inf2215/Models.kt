@@ -160,6 +160,26 @@ data class Announcement(
     val readBy: List<String> = emptyList()
 )
 
+@IgnoreExtraProperties
+sealed class NoticeItem {
+    data class AnnouncementItem(val announcement: Announcement) : NoticeItem()
+    data class UserNotificationItem(val notification: UserNotification) : NoticeItem()
+}
+
+@IgnoreExtraProperties
+data class UserNotification(
+    val id: String = "",
+    val type: String = "",
+    val toUserId: String = "",
+    val fromUserId: String = "",
+    val fromDisplayName: String = "",
+    val postId: String = "",
+    val commentId: String? = null,
+    val message: String = "",
+    val createdAt: Timestamp? = null,
+    val isRead: Boolean = false
+)
+
 fun getCategoryStyle(type: String) = when (type) {
     "News" -> Icons.Default.Circle to Color(0xFF4CAF50)
     "System Notice" -> Icons.Default.Circle to Color(0xFFFFC107)
