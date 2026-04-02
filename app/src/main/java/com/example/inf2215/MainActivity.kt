@@ -550,13 +550,12 @@ class MainActivity : ComponentActivity() {
                 val adminNavItems = listOf(
                     NavItem(Screen.AdminAnnouncements, "Announce", Icons.Default.Campaign),
                     NavItem(Screen.AdminReports, "Reports", Icons.Default.Report),
-                    NavItem(Screen.AdminLogs, "Logs", Icons.Default.History),
                     NavItem(Screen.AdminProfile, "Profile", Icons.Default.Person)
                 )
 
                 val isAdminMode = screen in listOf(
                     Screen.AdminAnnouncements, Screen.AdminReports,
-                    Screen.AdminLogs, Screen.AdminProfile, Screen.AdminCreateAnnouncement
+                    Screen.AdminProfile, Screen.AdminCreateAnnouncement
                 )
 
                 val showBars = screen !in listOf(Screen.Login, Screen.Register)
@@ -636,7 +635,6 @@ class MainActivity : ComponentActivity() {
                                             Screen.AdminAnnouncements -> "Admin Announcements"
                                             Screen.AdminCreateAnnouncement -> if (selectedAnnouncementId == null) "New Announcement" else "Edit Announcement"
                                             Screen.AdminReports -> "Admin Reports"
-                                            Screen.AdminLogs -> "Admin Logs"
                                             Screen.Notifications -> "Alerts"
                                             Screen.AnnouncementDetail -> "Announcement"
                                             Screen.PostDetail -> "Post Details"
@@ -962,12 +960,6 @@ class MainActivity : ComponentActivity() {
                             )
 
                             Screen.AdminReports -> AdminReportsScreen()
-
-                            Screen.AdminLogs -> {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("Admin Logs Content")
-                                }
-                            }
 
                             Screen.PostDetail -> {
                                 selectedPostId?.let { postId ->
