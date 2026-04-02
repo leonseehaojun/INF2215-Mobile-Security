@@ -312,24 +312,48 @@ fun PostContent(
                 ) {
                     Icon(Icons.Default.MoreVert, contentDescription = "More options")
                 }
+
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Report") },
-                        onClick = {
-                            showMenu = false
-                            showReportDialog = true
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Default.ErrorOutline, contentDescription = null)
-                        }
-                    )
+                    if (post.userId == currentUserId) {
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                showMenu = false
+
+                                if (post.type == "THREAD" && post.groupId != null) {
+                                    db.collection("groups")
+                                        .document(post.groupId)
+                                        .collection("threads")
+                                        .document(post.id)
+                                        .delete()
+                                } else {
+                                    db.collection("posts")
+                                        .document(post.id)
+                                        .delete()
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                            }
+                        )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text("Report") },
+                            onClick = {
+                                showMenu = false
+                                showReportDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = null)
+                            }
+                        )
+                    }
                 }
             }
         }
-
         Spacer(Modifier.height(8.dp))
 
         // Title Row

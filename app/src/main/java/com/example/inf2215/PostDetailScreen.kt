@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -120,6 +121,7 @@ fun PostDetailScreen(
                         runDistance = doc.getString("runDistance"),
                         runDuration = doc.getString("runDuration"),
                         route = parsedRoute,
+                        runPace = doc.getString("runPace"),
                         createdAt = doc.getTimestamp("createdAt"),
                         likes = doc.get("likes") as? List<String> ?: emptyList(),
                         commentsCount = doc.getLong("commentsCount")?.toInt() ?: 0
@@ -186,6 +188,7 @@ fun PostDetailScreen(
                 items(organizedComments) { (comment, indentation) ->
                     CommentItem(
                         comment = comment,
+                        postId = postId,
                         indentation = indentation,
                         onReplyClick = { replyingTo = it }
                     )
@@ -280,11 +283,14 @@ fun PostDetailScreen(
 @Composable
 fun CommentItem(
     comment: Comment,
+    postId: String,
     indentation: Int,
     onReplyClick: (Comment) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
+    val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    val db = FirebaseFirestore.getInstance()
 
     Row(
         modifier = Modifier
@@ -343,14 +349,36 @@ fun CommentItem(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Report") },
-                            onClick = {
-                                showMenu = false
-                                showReportDialog = true
-                            },
-                            leadingIcon = { Icon(Icons.Default.Report, contentDescription = null) }
-                        )
+                        if (comment.userId == currentUserId) {
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = {
+                                    showMenu = false
+                                    db.collection("comments")
+                                        .document(comment.id)
+                                        .delete()
+                                        .addOnSuccessListener {
+                                            db.collection("posts")
+                                                .document(postId)
+                                                .update("commentsCount", FieldValue.increment(-1))
+                                            }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Delete, contentDescription = null)
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Report") },
+                                onClick = {
+                                    showMenu = false
+                                    showReportDialog = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Report, contentDescription = null)
+                                }
+                            )
+                        }
                     }
                 }
             }
