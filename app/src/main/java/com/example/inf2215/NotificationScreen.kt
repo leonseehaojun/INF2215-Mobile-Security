@@ -29,12 +29,17 @@ import java.util.*
 @Composable
 fun NotificationScreen(
     onAnnouncementClick: (String) -> Unit,
+    onPostNotificationClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val db = remember { FirebaseFirestore.getInstance() }
     val auth = remember { FirebaseAuth.getInstance() }
+    val currentUserId = auth.currentUser?.uid
+
     var announcements by remember { mutableStateOf(listOf<Announcement>()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var userNotifications by remember { mutableStateOf(listOf<UserNotification>()) }
+    var isLoadingAnnouncements by remember { mutableStateOf(true) }
+    var isLoadingNotifications by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         db.collection("announcements")
@@ -43,26 +48,49 @@ fun NotificationScreen(
                 announcements = snapshot?.documents?.mapNotNull { doc ->
                     doc.toObject(Announcement::class.java)?.copy(id = doc.id)
                 } ?: emptyList()
-                isLoading = false
+                isLoadingAnnouncements = false
             }
+    }
+
+    LaunchedEffect(currentUserId) {
+        if (currentUserId != null) {
+            db.collection("notifications")
+                .whereEqualTo("toUserId", currentUserId)
+                .addSnapshotListener { snapshot, _ ->
+                    userNotifications = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(UserNotification::class.java)?.copy(id = doc.id)
+                    } ?: emptyList()
+                    isLoadingNotifications = false
+                }
+        } else {
+            isLoadingNotifications = false
+        }
+    }
+
+    val isLoading = isLoadingAnnouncements || isLoadingNotifications
+
+    val combinedItems = remember(announcements, userNotifications) {
+        val annItems = announcements.map { NoticeItem.AnnouncementItem(it) }
+        val notifItems = userNotifications.map { NoticeItem.UserNotificationItem(it) }
+
+        (annItems + notifItems).sortedByDescending {
+            when (it) {
+                is NoticeItem.AnnouncementItem -> it.announcement.createdAt
+                is NoticeItem.UserNotificationItem -> it.notification.createdAt
+            }
+        }
     }
 
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-    } else if (announcements.isEmpty()) {
+    } else if (combinedItems.isEmpty()) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "No new notifications",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-            }
+            Text("No new notifications")
         }
     } else {
         LazyColumn(
@@ -70,20 +98,113 @@ fun NotificationScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(announcements) { announcement ->
-                val userId = auth.currentUser?.uid
-                val isRead = userId != null && announcement.readBy.contains(userId)
+            items(combinedItems) { item ->
+                when (item) {
+                    is NoticeItem.AnnouncementItem -> {
+                        val announcement = item.announcement
+                        val userId = auth.currentUser?.uid
+                        val isRead = userId != null && announcement.readBy.contains(userId)
 
-                NotificationAnnouncementCard(
-                    announcement = announcement,
-                    isRead = isRead,
-                    onClick = {
-                        if (userId != null && !isRead) {
-                            db.collection("announcements").document(announcement.id)
-                                .update("readBy", FieldValue.arrayUnion(userId))
-                        }
-                        onAnnouncementClick(announcement.id)
+                        NotificationAnnouncementCard(
+                            announcement = announcement,
+                            isRead = isRead,
+                            onClick = {
+                                if (userId != null && !isRead) {
+                                    db.collection("announcements")
+                                        .document(announcement.id)
+                                        .update("readBy", FieldValue.arrayUnion(userId))
+                                }
+                                onAnnouncementClick(announcement.id)
+                            }
+                        )
                     }
+
+                    is NoticeItem.UserNotificationItem -> {
+                        val notification = item.notification
+
+                        UserNotificationCard(
+                            notification = notification,
+                            onClick = {
+                                if (!notification.isRead) {
+                                    db.collection("notifications")
+                                        .document(notification.id)
+                                        .update("isRead", true)
+                                }
+
+                                if (notification.postId.isNotBlank()) {
+                                    onPostNotificationClick(notification.postId)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UserNotificationCard(
+    notification: UserNotification,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = if (notification.isRead) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+        } else {
+            CardDefaults.cardColors()
+        },
+        elevation = if (notification.isRead) {
+            CardDefaults.cardElevation(0.dp)
+        } else {
+            CardDefaults.cardElevation(2.dp)
+        }
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        RoundedCornerShape(8.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = notification.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (notification.isRead) FontWeight.Normal else FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(4.dp))
+
+                val dateStr = notification.createdAt?.toDate()?.let {
+                    SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(it)
+                } ?: ""
+
+                Text(
+                    text = dateStr,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
                 )
             }
         }

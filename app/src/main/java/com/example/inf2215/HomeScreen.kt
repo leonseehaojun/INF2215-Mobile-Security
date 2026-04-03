@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ThumbUp
+import com.google.firebase.Timestamp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -312,24 +313,48 @@ fun PostContent(
                 ) {
                     Icon(Icons.Default.MoreVert, contentDescription = "More options")
                 }
+
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Report") },
-                        onClick = {
-                            showMenu = false
-                            showReportDialog = true
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Default.ErrorOutline, contentDescription = null)
-                        }
-                    )
+                    if (post.userId == currentUserId) {
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                showMenu = false
+
+                                if (post.type == "THREAD" && post.groupId != null) {
+                                    db.collection("groups")
+                                        .document(post.groupId)
+                                        .collection("threads")
+                                        .document(post.id)
+                                        .delete()
+                                } else {
+                                    db.collection("posts")
+                                        .document(post.id)
+                                        .delete()
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                            }
+                        )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text("Report") },
+                            onClick = {
+                                showMenu = false
+                                showReportDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = null)
+                            }
+                        )
+                    }
                 }
             }
         }
-
         Spacer(Modifier.height(8.dp))
 
         // Title Row
@@ -458,6 +483,25 @@ fun PostContent(
                             } else {
                                 // If it wasnt liked, add it
                                 ref.update("likes", FieldValue.arrayUnion(currentUserId))
+                                if (post.userId != currentUserId) {
+                                    db.collection("users").document(currentUserId).get()
+                                        .addOnSuccessListener { userDoc ->
+                                            val fromDisplayName = userDoc.getString("displayName") ?: "Someone"
+
+                                            val notificationData = hashMapOf(
+                                                "type" to "like",
+                                                "toUserId" to post.userId,
+                                                "fromUserId" to currentUserId,
+                                                "fromDisplayName" to fromDisplayName,
+                                                "postId" to post.id,
+                                                "message" to "$fromDisplayName liked your post",
+                                                "createdAt" to Timestamp.now(),
+                                                "isRead" to false
+                                            )
+
+                                            db.collection("notifications").add(notificationData)
+                                        }
+                                }
                             }
                         }
                     }
